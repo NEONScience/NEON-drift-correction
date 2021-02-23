@@ -1,27 +1,32 @@
 #' @title Parse an asset xml info into a dataframe
 #' @author Guy Litt
+#' @description  Given an asset query that has been parsed into an xml, return a data frame of useful information
 #' @param asstXml an XMLInternalDocument / XMLAbstractDocument specific to a particular asset
-#' @details  Given an asset query that has been parsed into an xml, return a data frame of useful information
 #' @example
 #' rspn <- httr::GET(url="den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp/asset-installs?meas-strm-name=NEON.D08.DELA.DP0.00098.001.01357.000.060.000&install-range-begin=2017-01-01T00:00:00.000Z&install-range-cutoff=2021-02-01T00:00:00.000Z")
 #' xml <- XML::xmlParse(cntn)
 #' def.read.asst.xml.neon(asstRead = xml)
 #' @export
 
+# Changelog / Contributions
+#  2021-02-23 GL originally created
+
 def.read.asst.xml.neon <- function(asstXml){
   # XML file as a list
-  listXml <- XML::xmlToList(asstXml)#[["DPMSCalValXML"]]
+  listXml <- XML::xmlToList(asstXml)
   
   lsAsst <- base::list()
   for(idx in 1:length(listXml)){
     nameIdx <- names(listXml)[idx]
     if(nameIdx == "assetInstall"){ #proceed
+      
+      # Install date
       if(base::length(listXml[[idx]]$installDate) ==0){
         next() # No install date means no useful info
       } else {
         instDate <- listXml[[idx]]$installDate
       }
-      
+      # Remove date
       if(base::length(listXml[[idx]]$removeDate) ==0){
         rmDate <- NA
       } else {
