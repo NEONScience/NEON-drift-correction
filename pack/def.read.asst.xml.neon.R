@@ -2,10 +2,11 @@
 #' @author Guy Litt
 #' @description  Given an asset query that has been parsed into an xml, return a data frame of useful information
 #' @param asstXml an XMLInternalDocument / XMLAbstractDocument specific to a particular asset
+#' @return dtAsst a data.table ordered in decreasing time that contains information pertaining to an asset such as install/remove date,l ocation, asset details
 #' @example
 #' rspn <- httr::GET(url="den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp/asset-installs?meas-strm-name=NEON.D08.DELA.DP0.00098.001.01357.000.060.000&install-range-begin=2017-01-01T00:00:00.000Z&install-range-cutoff=2021-02-01T00:00:00.000Z")
 #' xml <- XML::xmlParse(cntn)
-#' def.read.asst.xml.neon(asstRead = xml)
+#' def.read.asst.xml.neon(asstXml = xml)
 #' @export
 
 # Changelog / Contributions
@@ -94,5 +95,15 @@ def.read.asst.xml.neon <- function(asstXml){
   } else {
     dtAsst <- NULL
   }
+  
+  dtAsst$installDateText <- dtAsst$installDate
+  dtAsst$removeDateText <- dtAsst$removeDate
+  
+  # Convert character timestamp to POSIXct class and order df based on decreasing install time
+  dtAsst$installDate <- base::as.POSIXct(dtAsst$installDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC") # dtAsst$installDate
+  dtAsst$removeDate <- base::as.POSIXct(dtAsst$removeDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC") 
+  
+  dtAsst <- dtAsst[base::order(dtAsst$installDate,decreasing = TRUE)]
+  
   return(dtAsst)
 }
