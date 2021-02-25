@@ -2,10 +2,11 @@
 #' @author Guy Litt
 #' @description  Given an asset query that has been parsed into an xml, return a data frame of useful information
 #' @param asstXml an XMLInternalDocument / XMLAbstractDocument specific to a particular asset
+#' @return dtAsst a data.table ordered in decreasing time that contains information pertaining to an asset such as install/remove date,l ocation, asset details
 #' @example
 #' rspn <- httr::GET(url="den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp/asset-installs?meas-strm-name=NEON.D08.DELA.DP0.00098.001.01357.000.060.000&install-range-begin=2017-01-01T00:00:00.000Z&install-range-cutoff=2021-02-01T00:00:00.000Z")
 #' xml <- XML::xmlParse(cntn)
-#' def.read.asst.xml.neon(asstRead = xml)
+#' def.read.asst.xml.neon(asstXml = xml)
 #' @export
 
 # Changelog / Contributions
@@ -35,10 +36,13 @@ def.read.asst.xml.neon <- function(asstXml){
       
       # Asset details
       asstDeet <- listXml[[idx]]$asset
+      asstAttr <- asstDeet$.attrs
+      
       if(length(asstDeet) > 0){
         asstDf <- base::data.frame(site = base::ifelse(base::is.null(asstDeet$maximoSite), NA,asstDeet$maximoSite), 
                          locMaximo = base::ifelse(base::is.null(asstDeet$maximoLocation), NA,asstDeet$maximoLocation), 
                          assetNumber = base::ifelse(base::is.null(asstDeet$assetNumber), NA,asstDeet$assetNumber), 
+                         assetUid = base::ifelse(base::is.null(base::as.numeric(asstAttr["assetUid"])), NA,base::as.numeric(asstAttr["assetUid"])),
                          assetTag = base::ifelse(base::is.null(asstDeet$assetTag), NA,asstDeet$assetTag), 
                          assetDesc = base::ifelse(base::is.null(asstDeet$description),NA,asstDeet$description), 
                          stringsAsFactors = FALSE)
@@ -46,6 +50,7 @@ def.read.asst.xml.neon <- function(asstXml){
         asstDf <- base::data.frame(site = NA, 
                                    locMaximo = NA,
                                    assetNumber = NA,
+                                   assetUid = NA,
                                    assetTag = NA,
                                    assetDesc = NA,
                                    stringsAsFactors = FALSE)
@@ -54,12 +59,14 @@ def.read.asst.xml.neon <- function(asstXml){
       # Term details
       defDeet <- listXml[[idx]]$assetDefinition
       if (length(defDeet) > 0){
-        deetDf <- base::data.frame(termName = base::ifelse(base::is.null(defDeet$ingestTerm$term$name), NA,defDeet$ingestTerm$term$name),
+        deetDf <- base::data.frame(strmId = base::ifelse(base::is.null(defDeet$ingestTerm$streamId), NA,defDeet$ingestTerm$streamId),
+                                   termName = base::ifelse(base::is.null(defDeet$ingestTerm$term$name), NA,defDeet$ingestTerm$term$name),
                                    termNum = base::ifelse(base::is.null(defDeet$ingestTerm$term$termNumber), NA,defDeet$ingestTerm$term$termNumber),
                                    termDesc = base::ifelse(base::is.null(defDeet$ingestTerm$term$description), NA, defDeet$ingestTerm$term$description),
                                    stringsAsFactors = FALSE)
       } else {
-        deetDf <- base::data.frame(termName = NA,
+        deetDf <- base::data.frame(strmId = NA,
+                                   termName = NA,
                                    termNum = NA,
                                    termDesc = NA,
                                    stringsAsFactors = FALSE)
@@ -94,5 +101,15 @@ def.read.asst.xml.neon <- function(asstXml){
   } else {
     dtAsst <- NULL
   }
+  
+  dtAsst$installDateText <- dtAsst$installDate
+  dtAsst$removeDateText <- dtAsst$removeDate
+  
+  # Convert character timestamp to POSIXct class and order df based on decreasing install time
+  dtAsst$installDate <- base::as.POSIXct(dtAsst$installDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC") # dtAsst$installDate
+  dtAsst$removeDate <- base::as.POSIXct(dtAsst$removeDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC") 
+  
+  dtAsst <- dtAsst[base::order(dtAsst$installDate,decreasing = TRUE)]
+  
   return(dtAsst)
 }
