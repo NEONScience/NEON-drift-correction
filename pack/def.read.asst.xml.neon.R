@@ -36,10 +36,13 @@ def.read.asst.xml.neon <- function(asstXml){
       
       # Asset details
       asstDeet <- listXml[[idx]]$asset
+      asstAttr <- asstDeet$.attrs
+      
       if(length(asstDeet) > 0){
         asstDf <- base::data.frame(site = base::ifelse(base::is.null(asstDeet$maximoSite), NA,asstDeet$maximoSite), 
                          locMaximo = base::ifelse(base::is.null(asstDeet$maximoLocation), NA,asstDeet$maximoLocation), 
                          assetNumber = base::ifelse(base::is.null(asstDeet$assetNumber), NA,asstDeet$assetNumber), 
+                         assetUid = base::ifelse(base::is.null(base::as.numeric(asstAttr["assetUid"])), NA,base::as.numeric(asstAttr["assetUid"])),
                          assetTag = base::ifelse(base::is.null(asstDeet$assetTag), NA,asstDeet$assetTag), 
                          assetDesc = base::ifelse(base::is.null(asstDeet$description),NA,asstDeet$description), 
                          stringsAsFactors = FALSE)
@@ -47,6 +50,7 @@ def.read.asst.xml.neon <- function(asstXml){
         asstDf <- base::data.frame(site = NA, 
                                    locMaximo = NA,
                                    assetNumber = NA,
+                                   assetUid = NA,
                                    assetTag = NA,
                                    assetDesc = NA,
                                    stringsAsFactors = FALSE)
@@ -55,12 +59,14 @@ def.read.asst.xml.neon <- function(asstXml){
       # Term details
       defDeet <- listXml[[idx]]$assetDefinition
       if (length(defDeet) > 0){
-        deetDf <- base::data.frame(termName = base::ifelse(base::is.null(defDeet$ingestTerm$term$name), NA,defDeet$ingestTerm$term$name),
+        deetDf <- base::data.frame(strmId = base::ifelse(base::is.null(defDeet$ingestTerm$streamId), NA,defDeet$ingestTerm$streamId),
+                                   termName = base::ifelse(base::is.null(defDeet$ingestTerm$term$name), NA,defDeet$ingestTerm$term$name),
                                    termNum = base::ifelse(base::is.null(defDeet$ingestTerm$term$termNumber), NA,defDeet$ingestTerm$term$termNumber),
                                    termDesc = base::ifelse(base::is.null(defDeet$ingestTerm$term$description), NA, defDeet$ingestTerm$term$description),
                                    stringsAsFactors = FALSE)
       } else {
-        deetDf <- base::data.frame(termName = NA,
+        deetDf <- base::data.frame(strmId = NA,
+                                   termName = NA,
                                    termNum = NA,
                                    termDesc = NA,
                                    stringsAsFactors = FALSE)
