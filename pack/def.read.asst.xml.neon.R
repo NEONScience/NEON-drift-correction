@@ -40,7 +40,8 @@ def.read.asst.xml.neon <- function(asstXml){
                          locMaximo = base::ifelse(base::is.null(asstDeet$maximoLocation), NA,asstDeet$maximoLocation), 
                          assetNumber = base::ifelse(base::is.null(asstDeet$assetNumber), NA,asstDeet$assetNumber), 
                          assetTag = base::ifelse(base::is.null(asstDeet$assetTag), NA,asstDeet$assetTag), 
-                         assetDesc = base::ifelse(base::is.null(asstDeet$description),NA,asstDeet$description), 
+                         assetDesc = base::ifelse(base::is.null(asstDeet$description),NA,asstDeet$description),
+                         assetUid = base::ifelse(base::is.na(asstDeet$.attrs["assetUid"]),NA,asstDeet$.attrs["assetUid"]),
                          stringsAsFactors = FALSE)
       } else {
         asstDf <- base::data.frame(site = NA, 
@@ -48,6 +49,7 @@ def.read.asst.xml.neon <- function(asstXml){
                                    assetNumber = NA,
                                    assetTag = NA,
                                    assetDesc = NA,
+                                   assetUid = NA,
                                    stringsAsFactors = FALSE)
       }
 
