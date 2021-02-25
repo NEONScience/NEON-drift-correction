@@ -3,6 +3,9 @@
 #  1. Does the step change in values between one installation and the next diminish after applying the drift correction
 #  2. Do the values of co-located replicate sensors converge after applying drift correction
 rm(list=ls())
+source('~/R/NEON-drift-correction/pack/def.read.asst.xml.neon.R')
+library('ggplot2')
+library('plotly')
 
 idDp <- 'NEON.D08.DELA.DP0.00098.001.01357.000.060.000' # RH
 streamId <- 0 # RH
@@ -89,66 +92,139 @@ if(dnld == TRUE){
 
 urlBaseApi <- 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'
 
-# Get the asset install history - This isn't working - for some reason the xml parsing is copying the first entry.
-timeBgnStr <- '2017-01-01T00:00:00.000Z' # Begin range to query asset install history
-timeEndStr <- '2021-02-01T00:00:00.000Z' # End range to query asset install history
+# Get the asset install history
+timeBgnStr <- format(data$time[1],'%Y-%m-%dT%H:%M:%OSZ')# Begin range to query asset install history
+timeEndStr <- format(tail(data$time,1),'%Y-%m-%dT%H:%M:%OSZ') # End range to query asset install history
 urlApi <- base::paste0(urlBaseApi,'/asset-installs?meas-strm-name=',idDp,'&install-range-begin=',timeBgnStr,'&install-range-cutoff=',timeEndStr,collapse='')
 rspn <- httr::GET(url=urlApi)
 cntn <- httr::content(rspn,as="text")
 xml <- XML::xmlParse(cntn)
-xml = XML::xmlTreeParse(cntn)
-assetHist <- XML::xmlToList(xml$doc$children$assetInstallList)
 
-# Reading in by hand...
-assetHist <- data.frame(uid=c('45912',
-                              '35418',
-                              '7106',
-                              '30931'
-                              ),
-                        timeBgn=
-                                c('2020-08-26T17:12:12.000Z',
-                                  '2019-05-30T15:49:11.000Z',
-                                  '2018-06-01T16:27:44.000Z',
-                                  '2017-05-31T15:52:14.000Z'
-                                  ),
-                        timeEnd=
-                                c(NA,
-                                  '2020-08-26T17:11:15.000Z',
-                                  '2019-05-30T15:48:23.000Z',
-                                  '2018-06-01T14:21:11.000Z'
-                                  ),
-                        stringsAsFactors=FALSE
-                        )
-assetHist$timeBgnPosx <- as.POSIXct(assetHist$timeBgn,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
-assetHist$timeEndPosx <- as.POSIXct(assetHist$timeEnd,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
-
-# Now get some calibration files for the 2nd install sensor (the one right before last)
-idxInst <- 2
-urlApi <- base::paste0(urlBaseApi,'/calibrations?asset-stream-key=',assetHist$uid[idxInst],':',streamId,
-                       '&startdate=',assetHist$timeBgn[idxInst],'&enddate=','2021-03-01T00:00:00.000Z',collapse='')
-rspn <- httr::GET(url=urlApi,httr::add_headers(Accept = "application/json"))
-cntn <- httr::content(rspn,as="text")
-cal <- jsonlite::fromJSON(cntn,simplifyDataFrame=T, flatten=T)$calibration
-cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validStartTime/1000 # milliseconds since 1970
-cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validEndTime/1000 # milliseconds since 1970
-
-# Get the calibration coefficients for the install period
-calInst <- cal[cal$validStartTime < assetHist$timeBgnPosx[idxInst],] # Restrict calibrations to those before the sensor was installed
-idxCalInst <- which.min(assetHist$timeBgnPosx[idxInst]-calInst$validStartTime) # Get the most recent cal prior to sensor install
-calCoefInst <- calInst$calibrationMetadatum[idxCalInst][[1]] # Get the calibration coefficients.
+assetHist <- def.read.asst.xml.neon(asstXml = xml) # Guy's function
+# assetHist$installDate <- as.POSIXct(assetHist$installDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
+# assetHist$removeDate <- as.POSIXct(assetHist$removeDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
 
 
-# Get the cal that has drift coefficients for the install period (the subsequent cal has these coefs)
-calDrft <- cal[cal$validStartTime > assetHist$timeEndPosx[idxInst],] # Restrict calibrations to those after the sensor left
-idxCalDrft <- which.min(calDrft$validStartTime-assetHist$timeEndPosx[idxInst]) # Get the most recent cal after sensor left
-calCoefDrift <- calDrft$calibrationMetadatum[idxCalDrft][[1]] # Get the calibration coefficients.
+# Apply the calibration & drift correction for every sensor install period
+data$calibrated <- NA
+data$driftCorrected <- NA
+for (idxInst in seq_len(nrow(assetHist))){
+  
+  urlApi <- base::paste0(urlBaseApi,'/calibrations?asset-stream-key=',assetHist$assetUid[idxInst],':',streamId,
+                         '&startdate=','2012-01-01T00:00:00.000Z','&enddate=','2021-03-01T00:00:00.000Z',collapse='')
+  rspn <- httr::GET(url=urlApi,httr::add_headers(Accept = "application/json"))
+  cntn <- httr::content(rspn,as="text")
+  cal <- jsonlite::fromJSON(cntn,simplifyDataFrame=T, flatten=T)$calibration
+  cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validStartTime/1000 # milliseconds since 1970
+  cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validEndTime/1000 # milliseconds since 1970
+  
+  # # Put cal metadata into a data frame - This not used, but maybe in the future...
+  # metaCal <- base::data.frame(path=NA,
+  #                             file=cal$certificateFileName,
+  #                             timeValiBgn=cal$validStartTime,
+  #                             timeValiEnd=cal$validEndTime,
+  #                             id=base::as.numeric(cal$certificateNumber),
+  #                             stringsAsFactors=FALSE)
+  # 
+  # # Select the appropriate cal for the time period
+  # calSlct <- NEONprocIS.cal::def.cal.slct(metaCal=metaCal,
+  #                              TimeBgn=assetHist$installDate[idxInst],
+  #                              TimeEnd=assetHist$removeDate[idxInst])
+  # 
+  
+  # Get the calibration coefficients for the install period
+  calInst <- cal[cal$validStartTime < assetHist$installDate[idxInst],] # Restrict calibrations to those before the sensor was installed
+  idxCalInst <- which.min(assetHist$installDate[idxInst]-calInst$validStartTime) # Get the most recent cal prior to sensor install
+  calCoefInst <- calInst$calibrationMetadatum[idxCalInst][[1]] # Get the calibration coefficients.
+  nameCalCoefInst <- names(calCoefInst)
+  nameCalCoefInst[nameCalCoefInst=='name'] <- "Name"
+  nameCalCoefInst[nameCalCoefInst=='value'] <- "Value"
+  names(calCoefInst) <-nameCalCoefInst
+  calCoefInst <- calCoefInst[!grepl('U_CVAL',calCoefInst$Name),]
+  infoCal <- list(cal=calCoefInst)
+  
+  # Apply calibration
+  func <-
+    NEONprocIS.cal::def.cal.func.poly(infoCal = infoCal, Prfx='CVALA', log = log)
+  
+  # Convert data using the calibration function
+  setData <- data$time >= assetHist$installDate[idxInst] & 
+             data$time >= calInst$validStartTime[idxCalInst] & 
+             data$time < assetHist$removeDate[idxInst]
+  data$calibrated[setData] <- stats::predict(object = func, newdata = data$data[setData])
+  
+  
+  
+  
+  
+  
+  # Now get the cal that has drift coefficients for the install period (the subsequent cal has these coefs)
+  calDrft <- cal[cal$validStartTime > assetHist$removeDate[idxInst],] # Restrict calibrations to those after the sensor left
+  idxCalDrft <- which.min(calDrft$validStartTime-assetHist$removeDate[idxInst]) # Get the most recent cal after sensor left
+  
+  # Move on if we don't have a subsequent cal
+  if(length(idxCalDrft) == 0){
+    next
+  }
+  
+  # Pull the drift coefficients
+  calCoefDrift <- calDrft$calibrationMetadatum[idxCalDrft][[1]] # Get the calibration coefficients.
+  coefDrftA <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE6']
+  coefDrftB <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE7']
+  coefDrftC <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE8']
+  
+  # Move on if no drift coefficients
+  if(length(c(coefDrftA,coefDrftB,coefDrftC)) != 3){
+    next
+  }
+  
+  # Apply drift correction
+  daysSinceCal <- as.numeric(difftime(data$time,calInst$validStartTime[idxCalInst],units='days'))
+  data$driftCorrected[setData] <- data$calibrated[setData]-(coefDrftA*data$calibrated[setData]^2 + 
+                                                            coefDrftB*data$calibrated[setData] + 
+                                                            coefDrftC)*daysSinceCal[setData]
+}
+
+
+# Make some plots
+dataPlotRaw <- data[,names(data) %in% c('time','data')]
+dataPlotRaw <- reshape2::melt(dataPlotRaw,id.vars=c('time'))
+plotRaw <- plotly::plot_ly(data=dataPlotRaw, x=~time, y=~value, split = ~variable, type='scatter', mode='lines') %>%
+  plotly::add_markers(x=assetHist$installDate,y=min(dataPlotRaw$value,na.rm=TRUE),name='Sensor swap',inherit=FALSE) %>%
+  plotly::layout(margin = list(b = 50, t = 50, r=50),
+                 title = idDp,
+                 xaxis = list(title = base::paste0(c(rep("\n&nbsp;", 3),
+                                                     rep("&nbsp;", 20),
+                                                     paste0("Date-Time"),
+                                                     rep("&nbsp;", 20)),
+                                                   collapse = ""),
+                              nticks=6,
+                              range = dataPlotRaw$time[c(1,base::length(dataPlotRaw$time))],
+                              zeroline=FALSE
+                 ))
+print(plotRaw)
 
 
 
 
 
+dataPlot <- data[,names(data) %in% c('time','calibrated','driftCorrected')]
+dataPlot <- reshape2::melt(dataPlot,id.vars=c('time'))
 
-# Apply the calibration coefficients to the L0 data
+# plot<-ggplot(dataPlot,aes(time,value,colour=variable)) +
+#   geom_line() + labs(title=idDp)
 
-# Apply the drift coefficients
-
+plot <- plotly::plot_ly(data=dataPlot, x=~time, y=~value, split = ~variable, type='scatter', mode='lines') %>%
+  plotly::add_markers(x=assetHist$installDate,y=min(dataPlot$value,na.rm=TRUE),name='Sensor swap',inherit=FALSE) %>%
+  plotly::layout(margin = list(b = 50, t = 50, r=50),
+                 title = idDp,
+                 xaxis = list(title = base::paste0(c(rep("\n&nbsp;", 3),
+                                                     rep("&nbsp;", 20),
+                                                     paste0("Date-Time"),
+                                                     rep("&nbsp;", 20)),
+                                                   collapse = ""),
+                              nticks=6,
+                              range = dataPlot$time[c(1,base::length(dataPlot$time))],
+                              zeroline=FALSE
+                 )) 
+print(plot)
