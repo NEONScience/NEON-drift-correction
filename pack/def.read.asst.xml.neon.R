@@ -106,8 +106,8 @@ def.read.asst.xml.neon <- function(asstXml){
   dtAsst$removeDateText <- dtAsst$removeDate
   
   # Convert character timestamp to POSIXct class and order df based on decreasing install time
-  dtAsst$installDate <- base::as.POSIXct(dtAsst$installDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC") # dtAsst$installDate
-  dtAsst$removeDate <- base::as.POSIXct(dtAsst$removeDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC") 
+  dtAsst$installDate <- base::as.POSIXct(dtAsst$installDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "GMT") # dtAsst$installDate
+  dtAsst$removeDate <- base::as.POSIXct(dtAsst$removeDate, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "GMT") 
   
   dtAsst <- dtAsst[base::order(dtAsst$installDate,decreasing = TRUE)]
   
