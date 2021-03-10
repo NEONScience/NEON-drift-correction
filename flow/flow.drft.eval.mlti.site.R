@@ -16,15 +16,15 @@ library('plotly')
 baseFileDir <- '~/analysesQAQC/drift/testData/'
 plotSaveDir <- '~/analysesQAQC/drift/results/'
 # PRT
-idDp <- 'NEON.D13.WLOU.DP0.20053.001.01325.102.100.000' # Resistance
+# idDp <- 'NEON.D13.WLOU.DP0.20053.001.01325.102.100.000' # Resistance
 streamId <- 0 # RH 
 term <- "PRT" # an informal term to use
 # TROLL
-idDpCoLoc <- base::gsub("20053.001.01325","20016.001.01378",idDp)
+# idDpCoLoc <- base::gsub("20053.001.01325","20016.001.01378",idDp)
 streamIdCoLoc <- 2 
 termCoLoc <- "TROLL" # an informal term to use
 
-
+dlData <- FALSE # Should data initially be downloaded? If false and .Rds fails to load, then moves to auto-dl data
 urlBaseApi <- 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'
 # Read in the file setting up test parameters
 testPara <- read.csv(paste0(baseFileDir,"DriftTestParameters.csv"), stringsAsFactors = FALSE)
@@ -39,13 +39,19 @@ for(idx in 1:base::nrow(testPara)){ # Loop by each test scenario of interest
   term <- testPara$term[idx]
   termCoLoc <- testPara$termCoLoc[idx]
   
+  subPlotSaveDir <- paste0(plotSaveDir,idDp,"/")
+  if(!base::dir.exists(subPlotSaveDir)){
+    base::dir.create(subPlotSaveDir)
+  }
+  
+  
   # ========================================================================= #
   #  ------------------------ GRAB & CORRECT DATA --------------------------  #
   # ========================================================================= #
   # Either download or read in the L0 data for the time period of interest. Note, it is wise to downsample this data to every 5 min or so
   fileData=paste0(baseFileDir,idDp,'.RData') # Name of the data file we'll either be saving or loading
-  data <- try(wrap.load.data.psto.drft(fileData = fileData,idDp = idDp, dnld = FALSE))
-  if(base::nrow(data) == 0 || 'try-error' %in% base::class(data)){
+  data <- try(wrap.load.data.psto.drft(fileData = fileData,idDp = idDp, dnld = dlData))
+  if(base::nrow(data) == 0 || 'try-error' %in% base::class(data) && dlData != TRUE){
     data <- wrap.load.data.psto.drft(fileData = fileData,idDp = idDp, dnld = TRUE)
   }
 
@@ -59,9 +65,13 @@ for(idx in 1:base::nrow(testPara)){ # Loop by each test scenario of interest
   # ========================================================================= #
   # Co-located dpID
   fileDataCo=paste0(baseFileDir,idDpCoLoc,'.RData') # Name of the data file we'll either be saving or loading
-  dataCoLoc <- base::try(wrap.load.data.psto.drft(fileData = fileDataCo,idDp = idDpCoLoc, dnld = FALSE))
-  if(base::nrow(dataCoLoc) == 0 || 'try-error' %in% base::class(dataCoLoc)){
+  
+  dataCoLoc <- base::try(wrap.load.data.psto.drft(fileData = fileDataCo,idDp = idDpCoLoc, dnld = dlData))
+  if(base::nrow(dataCoLoc) == 0 || 'try-error' %in% base::class(dataCoLoc) && dlData == FALSE){
     dataCoLoc <- wrap.load.data.psto.drft(fileData = fileDataCo,idDp = idDpCoLoc, dnld = TRUE)
+  } else if (base::nrow(dataCoLoc) == 0 || 'try-error' %in% base::class(dataCoLoc)) {
+    warning(paste0(idDpCoLoc, " could not download. Skipping co-location assessment."))
+    dataCoLoc <- base::data.frame(time = NA, data = NA, exst = 0, stringsAsFactors = FALSE)
   }
   # Calibrate and drift-correct
   rtrnCoLoc <- wrap.cal.corr.drft(idDp = idDpCoLoc, data = dataCoLoc, streamId = streamIdCoLoc,
@@ -104,13 +114,14 @@ for(idx in 1:base::nrow(testPara)){ # Loop by each test scenario of interest
   rsltDiff <- base::paste(spltDps$site[1], spltDps$hor[1], term, "vs.",termCoLoc, "\nDiff Calib Abs SD:", base::round(sdDiffAbsCal,digits = 3), "/ Diff Drift Abs SD: ", base::round(sdDiffAbsDrft, digits = 3))
   
   
+  
   # ========================================================================= #
   #  ------------------------------- PLOTTING  -----------------------------  #
   # ========================================================================= #
   
   # Difference analysis
   plotDiff <- def.plot.cal.drft(data = cmboData, assetHist = assetHist, idDp = rsltDiff, timeCol = "timePRT", colsPlot = c("diffCal","diffDrftCorr"))
-  saveDiffPlotName <- base::paste0(plotSaveDir,"Diff_",idDp, "_vs_", idDpCoLoc,".html")
+  saveDiffPlotName <- base::paste0(subPlotSaveDir,"Diff_",idDp, "_vs_", idDpCoLoc,".html")
   htmlwidgets::saveWidget(widget = plotDiff, file = saveDiffPlotName)
   
   
@@ -120,7 +131,7 @@ for(idx in 1:base::nrow(testPara)){ # Loop by each test scenario of interest
   plotDrftOnlyPrt <- def.plot.cal.drft(data = data, assetHist = assetHist, idDp = idDp, colsPlot = c('driftCorrected'), term = term) 
   plotCalOnlyPrt <-def.plot.cal.drft(data = data, assetHist = assetHist, idDp = idDp,colsPlot = c('calibrated'), term = term)
   
-  saveDrftCalPlotPrtName <-  base::paste0(plotSaveDir,"CalibDrift_",idDp,"_",term, ".html")
+  saveDrftCalPlotPrtName <-  base::paste0(subPlotSaveDir,"CalibDrift_",idDp,"_",term, ".html")
   htmlwidgets::saveWidget(widget = plotDrftAndNonPrt, file = saveDrftCalPlotPrtName)
   
   
@@ -129,7 +140,7 @@ for(idx in 1:base::nrow(testPara)){ # Loop by each test scenario of interest
   plotCalOnlyTrll <-def.plot.cal.drft(data = dataCoLoc, assetHist = asstHistCoLoc, idDp = idDpCoLoc,colsPlot = c('calibrated'), term = termCoLoc)
   plotDrftOnlyTrll <- def.plot.cal.drft(data = dataCoLoc, assetHist = asstHistCoLoc, idDp = idDpCoLoc, colsPlot = c('driftCorrected'), term = termCoLoc) 
   
-  saveDrftCalPlotTrllName <-  base::paste0(plotSaveDir,"DriftCorrected_",idDpCoLoc,"_",termCoLoc, ".html")
+  saveDrftCalPlotTrllName <-  base::paste0(subPlotSaveDir,"DriftCorrected_",idDpCoLoc,"_",termCoLoc, ".html")
   htmlwidgets::saveWidget(widget = plotDrftAndNonTrll, file = saveDrftCalPlotTrllName)
   
   # ------------------------------------------------------------------------- #
@@ -141,7 +152,7 @@ for(idx in 1:base::nrow(testPara)){ # Loop by each test scenario of interest
   
   # PRT/TROLL just drift-corrected:
   plotDrftOnlyAll <-  def.plot.cal.drft(data = dataCoLoc, p = plotDrftOnlyPrt, assetHist = asstHistCoLoc, idDp = base::c(idDp, idDpCoLoc), colsPlot = c('driftCorrected'), term = termCoLoc)
-  bothDrftOnlyName <- base::paste0(plotSaveDir,"BothDriftOnly",idDp, "_vs_", idDpCoLoc,".html")
+  bothDrftOnlyName <- base::paste0(subPlotSaveDir,"BothDriftOnly",idDp, "_vs_", idDpCoLoc,".html")
   htmlwidgets::saveWidget(widget = plotDrftOnlyAll, file = bothDrftOnlyName)
   
   
