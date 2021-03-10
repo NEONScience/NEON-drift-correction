@@ -30,7 +30,7 @@ urlBaseApi <- 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'
 testPara <- read.csv(paste0(baseFileDir,"DriftTestParameters.csv"), stringsAsFactors = FALSE)
 
 
-for(idx in 3:base::nrow(testPara)){ # Loop by each test scenario of interest
+for(idx in 1:base::nrow(testPara)){ # Loop by each test scenario of interest
   # Define Parameters
   idDp <- base::gsub("[\"]","",testPara$idDp[idx])
   idDpCoLoc <- base::gsub("[\"]","",testPara$idDpCoLoc[idx])
