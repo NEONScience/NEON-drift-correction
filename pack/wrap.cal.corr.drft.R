@@ -16,6 +16,12 @@
 # Originally created by Cove, adapted to wrapper function by GL 2021-03-03
 
 wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp', timeCol = "time", dataCol = "data"){
+  
+  if (base::length(streamId) != 1 || !base::is.integer(streamId)){
+    stop("streamId integer should only have a length of one.")
+  }
+  
+  
   # Get the asset install history
   timeBgnStr <- format(data[,timeCol][1],'%Y-%m-%dT%H:%M:%OSZ')# Begin range to query asset install history
   timeEndStr <- format(tail(data[,timeCol],1),'%Y-%m-%dT%H:%M:%OSZ') # End range to query asset install history
