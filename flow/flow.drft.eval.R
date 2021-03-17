@@ -7,22 +7,36 @@ source('~/R/NEON-drift-correction/pack/def.read.asst.xml.neon.R')
 library('ggplot2')
 library('plotly')
 
-idDp <- 'NEON.D08.DELA.DP0.00098.001.01357.000.060.000' # RH
-streamId <- 0 # RH
-#idDp <- 'NEON.D08.DELA.DP0.00098.001.01309.000.060.000' # Temp
-#streamId <- 1 # Temp
+# L0 data to apply drift correction
+dnld <- FALSE # Download L0 data? If FALSE, will read from file
+# idDp <- 'NEON.D08.DELA.DP0.00098.001.01357.000.060.000' # RH
+# streamId <- 0 # RH
+idDp <- 'NEON.D08.DELA.DP0.00098.001.01309.000.060.000' # Temp
+streamId <- 1 # Temp
 
 
+# Data to compare it to
+compL1 <- TRUE # Set to false if you don't want to compare with L1 data
+dnldComp <- FALSE
+idDpComp <- list(
+  site = 'DELA',
+  idDpMain = 'DP1.00003.001', 
+  term='tempTripleMean',
+  locHor = '000', 
+  locVer = '060', 
+  wndwAgr = '030', # 30-minute data product
+  Pack = 'basic'
+)
+  
 
 # Either download or read in the L0 data for the time period of interest. Note, it is wise to downsample this data to every 5 min or so
-dnld <- FALSE
 fileData=paste0('/scratch/SOM/Drift/',idDp,'.RData') # Name of the data file we'll either be saving or loading
 if(dnld == TRUE){
   yearMnthBgn <- '2018-06' # Format YYYY-DD as a string
   yearMnthEnd <- '2021-01' # Format YYYY-DD as a string
   timeAgr <- 5 # minutes
   
-  timeDist <- base::as.difftime(timeAgr,units="mins") # Time aggregation interval in minutes
+  timeDist <- base::as.difftime(timeAgr,units="mins") # Time sampling interval in minutes
   
   yearEnd <- base::as.numeric(base::substr(yearMnthEnd,start=1,stop=4))
   mnthEnd <- base::as.numeric(base::substr(yearMnthEnd,start=6,stop=7))
@@ -88,6 +102,89 @@ if(dnld == TRUE){
   # Just load it in!
   load(file=fileData)
 }
+
+
+
+
+
+
+
+# Grab the L1 data for comparison
+fileDataComp=paste0('/scratch/SOM/Drift/',
+                    idDpComp$site,'.',
+                    idDpComp$idDpMain,'.',
+                    idDpComp$idDpMain,'.',
+                    idDpComp$locHor,'.',
+                    idDpComp$locVer,'.',
+                    idDpComp$wndwAgr,'.',
+                    '.RData') # Name of the data file we'll either be saving or loading
+if(compL1 == TRUE && dnldComp == TRUE){
+  yearMnthBgn <- '2018-06' # Format YYYY-DD as a string
+  yearMnthEnd <- '2021-01' # Format YYYY-DD as a string
+  timeAgr <- 30 # minutes
+  
+  timeDist <- base::as.difftime(timeAgr,units="mins") # Time sampling interval in minutes
+  
+  yearEnd <- base::as.numeric(base::substr(yearMnthEnd,start=1,stop=4))
+  mnthEnd <- base::as.numeric(base::substr(yearMnthEnd,start=6,stop=7))
+  
+  if(mnthEnd == 12){
+    mnthEnd <- '01'
+    yearEnd <- base::as.character(yearEnd + 1)
+  } else {
+    mnthEnd <- base::as.character(mnthEnd + 1)
+  }
+  
+  # Set up the output time sequence
+  timeBgn <- base::strptime(base::paste0(yearMnthBgn,'-01'),format="%Y-%m-%d",tz='GMT') # Start time
+  timeEnd <- base::strptime(base::paste0(yearEnd,'-',mnthEnd,'-01'),format="%Y-%m-%d",tz='GMT')-timeDist
+  timeBgn <- base::as.POSIXct(base::seq.POSIXt(from=timeBgn,to=timeEnd,by=timeDist,tz="GMT"))
+  timeEnd <- timeBgn + timeDist
+  numData <- base::length(timeBgn)
+  
+  # We're going to grab data for each month and string it together
+  yearMnth <- base::unique(base::format(timeBgn,format='%Y-%m'))
+  dataComp <- vector(mode='list',length=length(yearMnth)) # Initialize
+  names(dataComp) <- yearMnth
+  
+  for(idxMnth in yearMnth){
+    print(idxMnth)
+    
+    # Get the year and month
+    yearIdx <- base::as.numeric(base::substr(idxMnth,start=1,stop=4))
+    mnthIdx <- base::as.numeric(base::substr(idxMnth,start=6,stop=7))
+    
+    # Grab the data
+    dataComp[[idxMnth]] <- tryCatch(
+                            som::def.neon.api.get.data(
+                                  site=idDpComp$site,
+                                  idDpMain=idDpComp$idDpMain,
+                                  locHor=idDpComp$locHor,
+                                  locVer=idDpComp$locVer,
+                                  wndwAgr=idDpComp$wndwAgr,
+                                  year=yearIdx,
+                                  mnth=mnthIdx,
+                                  Pack=idDpComp$Pack
+                            ),
+                            error=function(e){NULL}
+                            )
+    
+  } # end loop around months
+  
+  # Combine all the data into a single data frame and save it
+  dataComp <- do.call(rbind,dataComp)
+  save(dataComp,file=fileDataComp)
+  
+} else if (compL1 == TRUE){
+  
+  # Just load it in!
+  load(file=fileDataComp)
+}
+
+
+
+
+
 
 
 urlBaseApi <- 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'
@@ -215,7 +312,6 @@ dataPlot <- reshape2::melt(dataPlot,id.vars=c('time'))
 #   geom_line() + labs(title=idDp)
 
 plot <- plotly::plot_ly(data=dataPlot, x=~time, y=~value, split = ~variable, type='scatter', mode='lines') %>%
-  plotly::add_markers(x=assetHist$installDate,y=min(dataPlot$value,na.rm=TRUE),name='Sensor swap',inherit=FALSE) %>%
   plotly::layout(margin = list(b = 50, t = 50, r=50),
                  title = idDp,
                  xaxis = list(title = base::paste0(c(rep("\n&nbsp;", 3),
@@ -227,4 +323,15 @@ plot <- plotly::plot_ly(data=dataPlot, x=~time, y=~value, split = ~variable, typ
                               range = dataPlot$time[c(1,base::length(dataPlot$time))],
                               zeroline=FALSE
                  )) 
+
+if (compL1 == TRUE){
+  plot <- plot %>% 
+    plotly::add_lines(x=dataComp$startDateTime,y=dataComp[[idDpComp$term]],name=idDpComp$term,inherit=FALSE)
+
+}
+
+# Add in sensor swap points
+plot <- plot %>% 
+  plotly::add_markers(x=assetHist$installDate,y=min(dataPlot$value,na.rm=TRUE),name='Sensor swap',inherit=FALSE) %>%
+  
 print(plot)
