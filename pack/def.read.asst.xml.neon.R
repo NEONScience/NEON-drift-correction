@@ -44,7 +44,8 @@ def.read.asst.xml.neon <- function(asstXml){
                          assetNumber = base::ifelse(base::is.null(asstDeet$assetNumber), NA,asstDeet$assetNumber), 
                          assetUid = base::ifelse(base::is.null(base::as.numeric(asstAttr["assetUid"])), NA,base::as.numeric(asstAttr["assetUid"])),
                          assetTag = base::ifelse(base::is.null(asstDeet$assetTag), NA,asstDeet$assetTag), 
-                         assetDesc = base::ifelse(base::is.null(asstDeet$description),NA,asstDeet$description), 
+                         assetDesc = base::ifelse(base::is.null(asstDeet$description),NA,asstDeet$description),
+                         assetUid = base::ifelse(base::is.na(asstDeet$.attrs["assetUid"]),NA,asstDeet$.attrs["assetUid"]),
                          stringsAsFactors = FALSE)
       } else {
         asstDf <- base::data.frame(site = NA, 
@@ -53,6 +54,7 @@ def.read.asst.xml.neon <- function(asstXml){
                                    assetUid = NA,
                                    assetTag = NA,
                                    assetDesc = NA,
+                                   assetUid = NA,
                                    stringsAsFactors = FALSE)
       }
 
