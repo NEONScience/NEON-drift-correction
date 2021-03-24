@@ -1,4 +1,4 @@
-#' @title wrapper function to download data from presto for drift assessemnt
+#' @title Function to download data from presto for drift assessemnt
 #' @author Cove Sturtevant, Guy Litt
 #' @description Reads data from S3 bucket across a time range by
 #'  DPID/year-month for a given time aggregation interval (default 5 mins).
@@ -22,27 +22,11 @@ def.dl.data.psto.s3.drft <- function(idDp, fldrBase = NULL, ymBgn = '2018-01' , 
     stop("Must define the AWS_SECRET_ACCESS_KEY to use s3 bucket")
   }
   
-  spltDp <- som::def.splt.neon.id.dp.full(idDp)
-  if(base::is.null(fldrBase)){
-    # Infer S3 bucket read/write folder and filename
-    lvlId <- base::unique(base::paste0(spltDp$lvl,".",spltDp$id))
-    
-    if(base::grepl("DP0",lvlId)){
-      fldrS3 <- base::paste0("data/L0/",lvlId)
-    } else if (base::grepl("DP1",lvlId)){
-      fldrS3 <- base::paste0("data/L1/",lvlId)
-    }
-    
-    if(!aws.s3::bucket_exists(bucket = bucket, object = fldrS3) && makeNewFldr == FALSE){
-      stop(paste0(fldrS3, " does not exist yet in ",bucket,". Check the path provided in fldrBase. If you really need to create a new folder, set makeNewFldr = TRUE ") )
-    }
-    # The base file directory structure + filename
-    fileS3base <- base::paste0(fldrS3,"/",spltDp$site,"/", idDp,"_",timeAgr)
-    
-  } else {
-    # Use provided directory path 
-    fileS3base <- base::paste0(fldrBase,"/",spltDp$site,"/",idDp,"_",timeAgr)
-  }
+  # Return standard DP directory structure in s3 bucket
+  fileS3base <- def.crea.s3.fldr(idDp=idDp,fldrBase=fldrBase,type=NULL,
+                                 bucket=bucket,timeAgr=timeAgr,
+                                 makeNewFldr=makeNewFldr)
+  
   # ========================================================================= #
   #                                 GRAB DATA
   # ========================================================================= #
