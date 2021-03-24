@@ -33,7 +33,7 @@ def.dl.data.psto.s3.drft <- function(idDp, fldrBase = NULL, ymBgn = '2018-01' , 
       fldrS3 <- base::paste0("data/L1/",lvlId)
     }
     
-    if(!aws.s3::bucket_exists(fldrS3, bucket = bucket) && makeNewFldr == FALSE){
+    if(!aws.s3::bucket_exists(bucket = bucket, object = fldrS3) && makeNewFldr == FALSE){
       stop(paste0(fldrS3, " does not exist yet in ",bucket,". Check the path provided in fldrBase. If you really need to create a new folder, set makeNewFldr = TRUE ") )
     }
     # The base file directory structure + filename
@@ -71,7 +71,7 @@ def.dl.data.psto.s3.drft <- function(idDp, fldrBase = NULL, ymBgn = '2018-01' , 
   base::names(data) <- yearMnth
   
   for(idxMnth in yearMnth){
-    print(idxMnth)
+    message(base::paste0("Grabbing ",idDp, idxMnth))
     
     # Get the end time for the data this month
     yearEndIdx <- base::as.numeric(base::substr(idxMnth,start=1,stop=4))
