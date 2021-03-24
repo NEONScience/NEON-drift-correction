@@ -9,12 +9,13 @@
 #' @param urlBaseApi base url. Default \link{'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'}
 #' @param timeCol time column name in \code{data}. Default 'time'
 #' @d
-#' @return The same dataset, data with calibration-corrected and drift-corrected data columns
-#' 
+#' @return List of two objects: 
+#' $data: same dataframe plus calibration-corrected and drift-corrected data columns, boolean drift corrected col, and install date columns
+#' $assetHist The asset history data.frame
 #' 
 # Changelog/Contributions
 # Originally created by Cove, adapted to wrapper function by GL 2021-03-03
-
+#  2021-03-24 UTC to GMT, added boolean drift correction indicator & asset install date columns to output data, GL
 wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp', timeCol = "time", dataCol = "data"){
   
   if (base::length(streamId) != 1 || !base::is.integer(streamId)){
@@ -36,9 +37,11 @@ wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsll
   
   
   # Apply the calibration & drift correction for every sensor install period
-  data[,timeCol] <- as.POSIXct(data[,timeCol], tz = "UTC")
+  data[,timeCol] <- as.POSIXct(data[,timeCol], tz = "GMT")
   data$calibrated <- NA
   data$driftCorrected <- NA
+  data$drftCorrFlag <- FALSE
+  data$instDate <- NA
   for (idxInst in seq_len(nrow(assetHist))){
     
     urlApi <- base::paste0(urlBaseApi,'/calibrations?asset-stream-key=',assetHist$assetUid[idxInst],':',streamId,
@@ -46,8 +49,8 @@ wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsll
     rspn <- httr::GET(url=urlApi,httr::add_headers(Accept = "application/json"))
     cntn <- httr::content(rspn,as="text")
     cal <- jsonlite::fromJSON(cntn,simplifyDataFrame=T, flatten=T)$calibration
-    cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="UTC")+cal$validStartTime/1000 # milliseconds since 1970
-    cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="UTC")+cal$validEndTime/1000 # milliseconds since 1970
+    cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validStartTime/1000 # milliseconds since 1970
+    cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validEndTime/1000 # milliseconds since 1970
     
     # # Put cal metadata into a data frame - This not used, but maybe in the future...
     # metaCal <- base::data.frame(path=NA,
@@ -88,10 +91,8 @@ wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsll
     }
     
     data$calibrated[setData] <- stats::predict(object = func, newdata = data[setData, dataCol])
-    
-    
-    
-    
+    # Add asset install time (numeric format) to the dataset
+    data$instDate[setData] <- assetHist$installDate[idxInst]
     
     # Now get the cal that has drift coefficients for the install period (the subsequent cal has these coefs)
     calDrft <- cal[cal$validStartTime > assetHist$removeDate[idxInst],] # Restrict calibrations to those after the sensor left
@@ -118,6 +119,9 @@ wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsll
     data$driftCorrected[setData] <- data$calibrated[setData]-(coefDrftA*data$calibrated[setData]^2 + 
                                                                 coefDrftB*data$calibrated[setData] + 
                                                                 coefDrftC)*daysSinceCal[setData]
+    
+    
+    data$drftCorrFlag[setData] <- TRUE
   }
   return(base::list(data = data, assetHist = assetHist))
 }
