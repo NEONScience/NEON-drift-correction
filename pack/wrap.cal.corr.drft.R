@@ -1,0 +1,127 @@
+#' @title Wrapper to calibrate and drift-correct a datastream
+#' @author Cove Sturtevant, Guy Litt
+#' @description given data product ID, un-calibrated L0 data, streamId, and base api URL,
+#' download calibration coefficients and correct the data, and download drift
+#' correction coefficients and drift correct the data
+#' @param idDp
+#' @param data
+#' @param streamId Integer. Stream ID from a sensor. See engineering avro schemas at \link{https://github.battelleecology.org/Engineering/avro-schemas/tree/develop/schemas}
+#' @param urlBaseApi base url. Default \link{'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'}
+#' @param timeCol time column name in \code{data}. Default 'time'
+#' @d
+#' @return List of two objects: 
+#' $data: same dataframe plus calibration-corrected and drift-corrected data columns, boolean drift corrected col, and install date columns
+#' $assetHist The asset history data.frame
+#' 
+# Changelog/Contributions
+# Originally created by Cove, adapted to wrapper function by GL 2021-03-03
+#  2021-03-24 UTC to GMT, added boolean drift correction indicator & asset install date columns to output data, GL
+wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp', timeCol = "time", dataCol = "data"){
+  
+  if (base::length(streamId) != 1 || !base::is.integer(streamId)){
+    stop("streamId integer should only have a length of one.")
+  }
+  
+  
+  # Get the asset install history
+  timeBgnStr <- format(data[,timeCol][1],'%Y-%m-%dT%H:%M:%OSZ')# Begin range to query asset install history
+  timeEndStr <- format(tail(data[,timeCol],1),'%Y-%m-%dT%H:%M:%OSZ') # End range to query asset install history
+  urlApi <- base::paste0(urlBaseApi,'/asset-installs?meas-strm-name=',idDp,'&install-range-begin=',timeBgnStr,'&install-range-cutoff=',timeEndStr,collapse='')
+  rspn <- httr::GET(url=urlApi)
+  cntn <- httr::content(rspn,as="text")
+  xml <- XML::xmlParse(cntn)
+  
+  assetHist <- def.read.asst.xml.neon(asstXml = xml) # Guy's function
+  # assetHist$installDate <- as.POSIXct(assetHist$installDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
+  # assetHist$removeDate <- as.POSIXct(assetHist$removeDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
+  
+  
+  # Apply the calibration & drift correction for every sensor install period
+  data[,timeCol] <- as.POSIXct(data[,timeCol], tz = "GMT")
+  data$calibrated <- NA
+  data$driftCorrected <- NA
+  data$drftCorrFlag <- FALSE
+  data$instDate <- NA
+  for (idxInst in seq_len(nrow(assetHist))){
+    
+    urlApi <- base::paste0(urlBaseApi,'/calibrations?asset-stream-key=',assetHist$assetUid[idxInst],':',streamId,
+                           '&startdate=','2012-01-01T00:00:00.000Z','&enddate=','2021-03-01T00:00:00.000Z',collapse='')
+    rspn <- httr::GET(url=urlApi,httr::add_headers(Accept = "application/json"))
+    cntn <- httr::content(rspn,as="text")
+    cal <- jsonlite::fromJSON(cntn,simplifyDataFrame=T, flatten=T)$calibration
+    cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validStartTime/1000 # milliseconds since 1970
+    cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validEndTime/1000 # milliseconds since 1970
+    
+    # # Put cal metadata into a data frame - This not used, but maybe in the future...
+    # metaCal <- base::data.frame(path=NA,
+    #                             file=cal$certificateFileName,
+    #                             timeValiBgn=cal$validStartTime,
+    #                             timeValiEnd=cal$validEndTime,
+    #                             id=base::as.numeric(cal$certificateNumber),
+    #                             stringsAsFactors=FALSE)
+    # 
+    # # Select the appropriate cal for the time period
+    # calSlct <- NEONprocIS.cal::def.cal.slct(metaCal=metaCal,
+    #                              TimeBgn=assetHist$installDate[idxInst],
+    #                              TimeEnd=assetHist$removeDate[idxInst])
+    # 
+    
+    # Get the calibration coefficients for the install period
+    calInst <- cal[cal$validStartTime < assetHist$installDate[idxInst],] # Restrict calibrations to those before the sensor was installed
+    idxCalInst <- which.min(assetHist$installDate[idxInst]-calInst$validStartTime) # Get the most recent cal prior to sensor install
+    calCoefInst <- calInst$calibrationMetadatum[idxCalInst][[1]] # Get the calibration coefficients.
+    nameCalCoefInst <- names(calCoefInst)
+    nameCalCoefInst[nameCalCoefInst=='name'] <- "Name"
+    nameCalCoefInst[nameCalCoefInst=='value'] <- "Value"
+    names(calCoefInst) <-nameCalCoefInst
+    calCoefInst <- calCoefInst[!grepl('U_CVAL',calCoefInst$Name),]
+    infoCal <- list(cal=calCoefInst)
+    
+    # Apply calibration
+    func <-
+      NEONprocIS.cal::def.cal.func.poly(infoCal = infoCal, Prfx='CVALA', log = log)
+    
+    # Convert data using the calibration function
+    setData <- data[,timeCol] >= assetHist$installDate[idxInst] & 
+      data[,timeCol] >= calInst$validStartTime[idxCalInst] & 
+      data[,timeCol] < assetHist$removeDate[idxInst]
+    
+    if(length(which(!is.na(data[setData,dataCol]))) == 0){
+      next()
+    }
+    
+    data$calibrated[setData] <- stats::predict(object = func, newdata = data[setData, dataCol])
+    # Add asset install time (numeric format) to the dataset
+    data$instDate[setData] <- assetHist$installDate[idxInst]
+    
+    # Now get the cal that has drift coefficients for the install period (the subsequent cal has these coefs)
+    calDrft <- cal[cal$validStartTime > assetHist$removeDate[idxInst],] # Restrict calibrations to those after the sensor left
+    idxCalDrft <- which.min(calDrft$validStartTime-assetHist$removeDate[idxInst]) # Get the most recent cal after sensor left
+    
+    # Move on if we don't have a subsequent cal
+    if(length(idxCalDrft) == 0){
+      next
+    }
+    
+    # Pull the drift coefficients
+    calCoefDrift <- calDrft$calibrationMetadatum[idxCalDrft][[1]] # Get the calibration coefficients.
+    coefDrftA <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE6']
+    coefDrftB <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE7']
+    coefDrftC <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE8']
+    
+    # Move on if no drift coefficients
+    if(length(c(coefDrftA,coefDrftB,coefDrftC)) != 3){
+      next
+    }
+    
+    # Apply drift correction
+    daysSinceCal <- as.numeric(difftime(data[,timeCol],calInst$validStartTime[idxCalInst],units='days'))
+    data$driftCorrected[setData] <- data$calibrated[setData]-(coefDrftA*data$calibrated[setData]^2 + 
+                                                                coefDrftB*data$calibrated[setData] + 
+                                                                coefDrftC)*daysSinceCal[setData]
+    
+    
+    data$drftCorrFlag[setData] <- TRUE
+  }
+  return(base::list(data = data, assetHist = assetHist))
+}
