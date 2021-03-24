@@ -10,8 +10,8 @@ rm(list=ls())
 library(aws.s3)
 
 # Enter in dp IDs for sub-folder data storage:
-dpIdsL1 <- base::c("DP1.20053","DP1.20016")
-dpIdsL0 <- base::c("DP0.00098", "DP0.20016")
+dpIdsL1 <- base::c("DP1.20016")
+dpIdsL0 <- base::c("DP0.00098", "DP0.20016","DP0.20053")
 # =========================================================================== #
 # --------------------------------------------------------------------------- #
 #                    READ IN SECRET ACCESS KEY
@@ -37,7 +37,7 @@ if(aws.s3::bucket_exists(bucket = "dev-is-drift")){
   aws.s3::put_folder(folder = "data/L0", bucket = bucket)
   aws.s3::put_folder(folder = "data/L1", bucket = bucket)
   aws.s3::put_folder(folder = "data/L1drift", bucket = bucket)
-  aws.s3::put_folder(folder = "data/L0calib", bucket = bucket) # Calibrated L0 data goes here 
+  # aws.s3::put_folder(folder = "data/L0calib", bucket = bucket) # Calibrated L0 data goes here 
   aws.s3::put_folder(folder = "data/CVAL/", bucket = bucket) # CVAL coeffs can go here
   
   # 
@@ -53,9 +53,9 @@ if(aws.s3::bucket_exists(bucket = "dev-is-drift")){
     }
   }
   
-  for(dpId in dpIdsL0){
-    if(!aws.s3::object_exists(paste0("data/L0calib/",dpId), bucket = bucket)){
-      aws.s3::put_folder(folder = paste0("data/L0calib/",dpId), bucket = bucket)
+  for(dpId in c(dpIdsL0, dpIdsL1)){
+    if(!aws.s3::object_exists(paste0("data/L1drift/",dpId), bucket = bucket)){
+      aws.s3::put_folder(folder = paste0("data/L1drift/",dpId), bucket = bucket)
     }
   }
   
