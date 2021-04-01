@@ -16,15 +16,27 @@
 # Changelog
 #    2021-Mar Created by Cove, adapted to wrapper by Guy
 #    2020-03-23 Adapted to write to s3 bucket instead of local location, GL
-def.dl.data.psto.s3.drft <- function(idDp, fldrBase = NULL, ymBgn = '2018-01' , ymEnd = '2021-01', timeAgr = 5, bucket = 'dev-is-drift', makeNewFldr = FALSE){
+def.dl.data.psto.s3.drft <- function(
+  idDp, 
+  fldrBase = NULL, 
+  ymBgn = '2018-01',
+  ymEnd = '2021-01', 
+  timeAgr = 5, 
+  bucket = 'dev-is-drift', 
+  makeNewFldr = FALSE
+  ){
+  
   # Check that s3 credentials defined.
   if(Sys.getenv("AWS_SECRET_ACCESS_KEY")==""){
     stop("Must define the AWS_SECRET_ACCESS_KEY to use s3 bucket")
   }
   
   # Return standard DP directory structure in s3 bucket
-  fileS3base <- def.crea.s3.fldr(idDp=idDp,fldrBase=fldrBase,type=NULL,
-                                 bucket=bucket,timeAgr=timeAgr,
+  fileS3base <- def.crea.s3.fldr(idDp=idDp,
+                                 fldrBase=fldrBase,
+                                 type=NULL,
+                                 bucket=bucket,
+                                 timeAgr=timeAgr,
                                  makeNewFldr=makeNewFldr)
   
   # ========================================================================= #
@@ -55,7 +67,7 @@ def.dl.data.psto.s3.drft <- function(idDp, fldrBase = NULL, ymBgn = '2018-01' , 
   base::names(data) <- yearMnth
   
   for(idxMnth in yearMnth){
-    message(base::paste0("Grabbing ",idDp, idxMnth))
+    message(base::paste0("Grabbing ",idDp, ' ',idxMnth))
     
     # Get the end time for the data this month
     yearEndIdx <- base::as.numeric(base::substr(idxMnth,start=1,stop=4))
@@ -92,6 +104,7 @@ def.dl.data.psto.s3.drft <- function(idDp, fldrBase = NULL, ymBgn = '2018-01' , 
                                                      CredPsto=NULL,
                                                      PrcsSec = 3
       )[[1]] # Just doing one data stream for now, but could do multiple
+      data$exst <- NULL # Get rid of unnecessary column
       
       # Write monthly S3 data to bucket
       aws.s3::s3saveRDS(x = data[[idxMnth]], object = saveName, bucket = bucket)
