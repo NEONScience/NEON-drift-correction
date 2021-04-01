@@ -19,7 +19,15 @@
 # Changelog / Contributions
 #   2021-03-23 originally created
 
-def.crea.s3.fldr <- function(idDp,fldrBase = NULL, type = c(NULL,"driftCorr","calibCorr")[1], bucket = "dev-is-drift", timeAgr = NA, makeNewFldr = FALSE){
+def.crea.s3.fldr <- function(
+  idDp,
+  fldrBase = NULL,
+  type = c(NULL,"driftCorr","calibCorr")[1], 
+  bucket = "dev-is-drift", 
+  timeAgr = NA, 
+  makeNewFldr = FALSE
+  ){
+  
   spltDp <- som::def.splt.neon.id.dp.full(idDp)
   if(base::is.null(fldrBase)){
     # Infer S3 bucket read/write folder and filename

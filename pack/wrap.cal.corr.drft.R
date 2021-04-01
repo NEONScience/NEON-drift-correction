@@ -16,7 +16,13 @@
 # Changelog/Contributions
 # Originally created by Cove, adapted to wrapper function by GL 2021-03-03
 #  2021-03-24 UTC to GMT, added boolean drift correction indicator & asset install date columns to output data, GL
-wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp', timeCol = "time", dataCol = "data"){
+wrap.cal.corr.drft <- function(idDp, 
+                               data, 
+                               streamId, 
+                               urlBaseApi = 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp', 
+                               timeCol = "time", 
+                               dataCol = "data"
+                               ){
   
   if (base::length(streamId) != 1 || !base::is.integer(streamId)){
     stop("streamId integer should only have a length of one.")
@@ -41,11 +47,11 @@ wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsll
   data$calibrated <- NA
   data$driftCorrected <- NA
   data$drftCorrFlag <- FALSE
-  data$instDate <- NA
+  data$instDate <- as.POSIXct(NA,tz='GMT')
   for (idxInst in seq_len(nrow(assetHist))){
     
     urlApi <- base::paste0(urlBaseApi,'/calibrations?asset-stream-key=',assetHist$assetUid[idxInst],':',streamId,
-                           '&startdate=','2012-01-01T00:00:00.000Z','&enddate=','2021-03-01T00:00:00.000Z',collapse='')
+                           '&startdate=','2012-01-01T00:00:00.000Z','&enddate=','2030-01-01T00:00:00.000Z',collapse='')
     rspn <- httr::GET(url=urlApi,httr::add_headers(Accept = "application/json"))
     cntn <- httr::content(rspn,as="text")
     cal <- jsonlite::fromJSON(cntn,simplifyDataFrame=T, flatten=T)$calibration
@@ -123,5 +129,9 @@ wrap.cal.corr.drft <- function(idDp, data, streamId, urlBaseApi = 'den-prodcdsll
     
     data$drftCorrFlag[setData] <- TRUE
   }
+  
+  # Ensure time and install date in GMT
+  attr(data[,timeCol],'tzone') <- 'GMT'
+  attr(data$instDate,'tzone') <- 'GMT'
   return(base::list(data = data, assetHist = assetHist))
 }
