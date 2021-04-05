@@ -45,19 +45,105 @@ if(dlType == "cstm"){
   # To use this section, you MUST be running the code from den-devissom-1
   Para <- list(
             list(
-              idDpMain="DP0.20053.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idDpMain="DP0.00098.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01357", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00098.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01309", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00003.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
               idTerm="01325", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
               site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
             ),
             list(
-              idDpMain="DP0.20016.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-              idTerm="01378", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              idDpMain="DP0.00004.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01311", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00022.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01324", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00023.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01317", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00023.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01318", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00024.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00024.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01321", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00014.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01332", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00014.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01333", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00066.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01329", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.20042.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00005.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01313", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00005.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01314", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.20261.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.20261.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01321", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00006.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01322", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.00006.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01322", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
               site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
             )
   )
 
   idDps <- c() 
   idDps <- base::lapply(Para,FUN=function(idxPara){
+    message(paste0(idxPara$idDpMain,',',idxPara$idTerm,',',idxPara$site))
     idDpsIdx <- def.dp.list(idDpMain=idxPara$idDpMain,
                             idTerm=idxPara$idTerm,
                             site=idxPara$site
@@ -71,7 +157,7 @@ if(dlType == "cstm"){
 # =========================================================================== #
 #                      DOWNLOAD DATA & DRIFT CORRECT
 # =========================================================================== #
-
+tryMax <- 3 # Number of tries to download data from Presto without error
 ctr <- 0
 for(idDp in idDps){
   ctr = ctr + 1
@@ -97,11 +183,22 @@ for(idDp in idDps){
   # Either download or read in the L0 data for the time period of interest. 
   #  Note, it is wise to downsample this data to every 5 min or so
   if(base::grepl("DP0", idDp)){
-    data <- def.dl.data.psto.s3.drft(idDp = idDp,fldrBase = NULL,
-                                     ymBgn = ymBgn, ymEnd = ymEnd,
-                                     timeAgr = timeAgr,
-                                     bucket = bucket,
-                                     makeNewFldr = FALSE)
+    idxTry <- 0
+    while (idxTry <= tryMax) {
+      data <- try(def.dl.data.psto.s3.drft(idDp = idDp,fldrBase = NULL,
+                                           ymBgn = ymBgn, ymEnd = ymEnd,
+                                           timeAgr = timeAgr,
+                                           bucket = bucket,
+                                           makeNewFldr = FALSE),
+                  silent=FALSE)
+      if('try-error' %in% base::class(data)){
+        idxTry <- idxTry + 1
+      } else {
+        idxTry <- tryMax + 1
+        Sys.sleep(10) # Wait for a few seconds and try again
+      }
+    }
+
   } else {
     message(paste0('Cannot download ',idDp, '. Only presto data (presently only DP0) can be downloaded at this time. Skipping...'))
     next
