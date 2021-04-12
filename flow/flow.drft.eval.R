@@ -247,7 +247,7 @@ for (idxInst in seq_len(nrow(assetHist))){
   # Convert data using the calibration function
   setData <- data$time >= assetHist$installDate[idxInst] & 
              data$time >= calInst$validStartTime[idxCalInst] & 
-             data$time < assetHist$removeDate[idxInst]
+            (is.na(assetHist$removeDate[idxInst]) | data$time < assetHist$removeDate[idxInst])
   data$calibrated[setData] <- stats::predict(object = func, newdata = data$data[setData])
   
   

@@ -45,6 +45,16 @@ if(dlType == "cstm"){
   # To use this section, you MUST be running the code from den-devissom-1
   Para <- list(
             list(
+              idDpMain="DP0.20053.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01325", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
+              idDpMain="DP0.20016.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+              idTerm="01378", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+              site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+            ),
+            list(
               idDpMain="DP0.00098.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
               idTerm="01357", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
               site=NULL # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
@@ -193,9 +203,9 @@ for(idDp in idDps){
                   silent=FALSE)
       if('try-error' %in% base::class(data)){
         idxTry <- idxTry + 1
+        Sys.sleep(60*5) # Wait for some time and try again
       } else {
         idxTry <- tryMax + 1
-        Sys.sleep(10) # Wait for a few seconds and try again
       }
     }
 

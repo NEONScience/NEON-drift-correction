@@ -48,6 +48,9 @@ wrap.cal.corr.drft <- function(idDp,
   data$driftCorrected <- NA
   data$drftCorrFlag <- FALSE
   data$instDate <- as.POSIXct(NA,tz='GMT')
+  data$U_CVALA1 <- NA
+  data$U_CVALE5 <- NA
+  data$U_CVALE9 <- NA
   for (idxInst in seq_len(nrow(assetHist))){
     
     urlApi <- base::paste0(urlBaseApi,'/calibrations?asset-stream-key=',assetHist$assetUid[idxInst],':',streamId,
@@ -80,8 +83,9 @@ wrap.cal.corr.drft <- function(idDp,
     nameCalCoefInst[nameCalCoefInst=='name'] <- "Name"
     nameCalCoefInst[nameCalCoefInst=='value'] <- "Value"
     names(calCoefInst) <-nameCalCoefInst
-    calCoefInst <- calCoefInst[!grepl('U_CVAL',calCoefInst$Name),]
-    infoCal <- list(cal=calCoefInst)
+    calCoef <- calCoefInst[!grepl('U_CVAL',calCoefInst$Name),] # Extract calibration coefficients
+    ucrtCoef <- calCoefInst[grepl('U_CVAL',calCoefInst$Name),] # Extract uncertainty coefficients
+    infoCal <- list(cal=calCoef,ucrt=ucrtCoef)
     
     # Apply calibration
     func <-
@@ -90,15 +94,22 @@ wrap.cal.corr.drft <- function(idDp,
     # Convert data using the calibration function
     setData <- data[,timeCol] >= assetHist$installDate[idxInst] & 
       data[,timeCol] >= calInst$validStartTime[idxCalInst] & 
-      data[,timeCol] < assetHist$removeDate[idxInst]
+      (is.na(assetHist$removeDate[idxInst]) | data[,timeCol] < assetHist$removeDate[idxInst])
     
-    if(length(which(!is.na(data[setData,dataCol]))) == 0){
-      next()
+    if(sum(!is.na(data[setData,dataCol])) == 0){
+      next
     }
     
     data$calibrated[setData] <- stats::predict(object = func, newdata = data[setData, dataCol])
+    
     # Add asset install time (numeric format) to the dataset
     data$instDate[setData] <- assetHist$installDate[idxInst]
+    
+    # Record calibration uncertainty
+    ucrtCoefA1 <- ucrtCoef$Value[ucrtCoef$Name == 'U_CVALA1']
+    if(!is.null(ucrtCoefA1)){
+      data$U_CVALA1[setData] <- ucrtCoefA1[1]
+    }
     
     # Now get the cal that has drift coefficients for the install period (the subsequent cal has these coefs)
     calDrft <- cal[cal$validStartTime > assetHist$removeDate[idxInst],] # Restrict calibrations to those after the sensor left
@@ -111,9 +122,15 @@ wrap.cal.corr.drft <- function(idDp,
     
     # Pull the drift coefficients
     calCoefDrift <- calDrft$calibrationMetadatum[idxCalDrft][[1]] # Get the calibration coefficients.
-    coefDrftA <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE6']
-    coefDrftB <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE7']
-    coefDrftC <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE8']
+    nameCalCoefDrift <- names(calCoefDrift)
+    nameCalCoefDrift[nameCalCoefDrift=='name'] <- "Name"
+    nameCalCoefDrift[nameCalCoefDrift=='value'] <- "Value"
+    names(calCoefDrift) <- nameCalCoefDrift
+    coefDrftA <- calCoefDrift$Value[calCoefDrift$Name == 'U_CVALE6']
+    coefDrftB <- calCoefDrift$Value[calCoefDrift$Name == 'U_CVALE7']
+    coefDrftC <- calCoefDrift$Value[calCoefDrift$Name == 'U_CVALE8']
+    coefDrftE5 <- calCoefDrift$Value[calCoefDrift$Name == 'U_CVALE5']
+    coefDrftE9 <- calCoefDrift$Value[calCoefDrift$Name == 'U_CVALE9']
     
     # Move on if no drift coefficients
     if(length(c(coefDrftA,coefDrftB,coefDrftC)) != 3){
@@ -128,6 +145,10 @@ wrap.cal.corr.drft <- function(idDp,
     
     
     data$drftCorrFlag[setData] <- TRUE
+    
+    # Record drift uncertainties
+    data$U_CVALE5[setData] <- coefDrftE5
+    data$U_CVALE9[setData] <- coefDrftE9
   }
   
   # Ensure time and install date in GMT
