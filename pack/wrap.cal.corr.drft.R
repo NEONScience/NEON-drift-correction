@@ -6,9 +6,10 @@
 #' @param idDp
 #' @param data
 #' @param streamId Integer. Stream ID from a sensor. See engineering avro schemas at \link{https://github.battelleecology.org/Engineering/avro-schemas/tree/develop/schemas}
+#' @param funcCal String. Name of function in NEONprocIS.base to apply the calibration. Defaults to def.cal.conv.poly (polynomial conversion with CVALA coefficients)
 #' @param urlBaseApi base url. Default \link{'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'}
 #' @param timeCol time column name in \code{data}. Default 'time'
-#' @d
+#' @param dataCol data column name in \code{data}. Default 'data'
 #' @return List of two objects: 
 #' $data: same dataframe plus calibration-corrected and drift-corrected data columns, boolean drift corrected col, and install date columns
 #' $assetHist The asset history data.frame
@@ -19,6 +20,7 @@
 wrap.cal.corr.drft <- function(idDp, 
                                data, 
                                streamId, 
+                               funcCal = 'def.cal.conv.poly',
                                urlBaseApi = 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp', 
                                timeCol = "time", 
                                dataCol = "data"
@@ -87,11 +89,7 @@ wrap.cal.corr.drft <- function(idDp,
     ucrtCoef <- calCoefInst[grepl('U_CVAL',calCoefInst$Name),] # Extract uncertainty coefficients
     infoCal <- list(cal=calCoef,ucrt=ucrtCoef)
     
-    # Apply calibration
-    func <-
-      NEONprocIS.cal::def.cal.func.poly(infoCal = infoCal, Prfx='CVALA', log = log)
-    
-    # Convert data using the calibration function
+    # ------- Convert data using the calibration function -------
     setData <- data[,timeCol] >= assetHist$installDate[idxInst] & 
       data[,timeCol] >= calInst$validStartTime[idxCalInst] & 
       (is.na(assetHist$removeDate[idxInst]) | data[,timeCol] < assetHist$removeDate[idxInst])
@@ -99,8 +97,20 @@ wrap.cal.corr.drft <- function(idDp,
     if(sum(!is.na(data[setData,dataCol])) == 0){
       next
     }
+
+    # Retrieve the calibration function
+    if(!is.na(funcCal)){
+      funcCalExec <- base::get(funcCal, base::asNamespace("NEONprocIS.cal"))
     
-    data$calibrated[setData] <- stats::predict(object = func, newdata = data[setData, dataCol])
+      # Apply the calibration function
+      data$calibrated[setData] <- base::do.call(funcCalExec,args=base::list(data=base::subset(data,subset=setData,drop=FALSE),
+                                                                           infoCal=infoCal,
+                                                                           varConv=dataCol
+                                                                           )
+      )
+    } else {
+      data$calibrated[setData] <- data[setData,dataCol]
+    } 
     
     # Add asset install time (numeric format) to the dataset
     data$instDate[setData] <- assetHist$installDate[idxInst]
