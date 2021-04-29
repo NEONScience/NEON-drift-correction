@@ -21,7 +21,7 @@ def.dl.data.psto.s3.drft <- function(
   fldrBase = NULL, 
   ymBgn = '2018-01',
   ymEnd = '2021-01', 
-  timeAgr = 5, 
+  timeAgr = 5, # minutes - desired L0 sampling interval
   bucket = 'dev-is-drift', 
   makeNewFldr = FALSE
   ){

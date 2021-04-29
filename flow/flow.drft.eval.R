@@ -1,337 +1,143 @@
-# Code to evaluate CVAL drift correction 
-# Two methods of validating the drift. 
-#  1. Does the step change in values between one installation and the next diminish after applying the drift correction
-#  2. Do the values of co-located replicate sensors converge after applying drift correction
-rm(list=ls())
-source('~/R/NEON-drift-correction/pack/def.read.asst.xml.neon.R')
-library('ggplot2')
-library('plotly')
+#' @title Flow script to grab presto data and save to s3 bucket
+#' @author Cove Sturtevant, Guy Litt
+#' @description Download drift-corrected L0 data from the S3 bucket and analyze it
 
-# L0 data to apply drift correction
-dnld <- FALSE # Download L0 data? If FALSE, will read from file
-# idDp <- 'NEON.D08.DELA.DP0.00098.001.01357.000.060.000' # RH
-# streamId <- 0 # RH
-idDp <- 'NEON.D08.DELA.DP0.00098.001.01309.000.060.000' # Temp
-streamId <- 1 # Temp
+# Changelog / contributions
+#  2021-04-29 originally created, CS
+
+library(aws.s3)
+
+# Import functions
+funcDir <- '~/R/NEON-drift-correction/pack/'
+sapply(list.files(funcDir, pattern = ".R"), function(x) source(paste0(funcDir,x)))
+
+# TODO Define these parameters
+evalType <- c("cstm", "coLoc","allLocs")[3] # cstm for a custom approach (individual specification of DP IDs), coLoc to analyze pairs of co-located sensors, allLocs to grab whatever is in the bucket
+timeAgr = 5 # minutes - L0 sampling interval in which the L0 data were gathered and drift corrected. Probably 5 minutes.
+
+# =========================================================================== #
+#                        SET S3 ENVIRONMENT/ACCESS
+# =========================================================================== #
+bucket <- "dev-is-drift"
+# Wanna see what's in there in a web browser? Go to https://test-s3.data.neonscience.org/dev-is-drift/browse 
+# Set the system environment for this bucket (assumes ~/.profile exists w/ secret key)
+def.set.s3.env(bucket = bucket)
 
 
-# Data to compare it to
-compL1 <- TRUE # Set to false if you don't want to compare with L1 data
-dnldComp <- FALSE
-idDpComp <- list(
-  site = 'DELA',
-  idDpMain = 'DP1.00003.001', 
-  term='tempTripleMean',
-  locHor = '000', 
-  locVer = '060', 
-  wndwAgr = '030', # 30-minute data product
-  Pack = 'basic'
-)
-  
+# =========================================================================== #
+#                        SPECIFY DATA STREAMS
+# =========================================================================== #
+# TODO Add your own idDps here, or create a way to read them in. 
+# NOTE: You must have already run flow.drift.psto.s3 to create drift-corrected data in the bucket
+if(evalType == "cstm"){
+  # A data frame of specific DP IDs to be analyzed individually. Data will be read in and available for each one
+  idDps <- data.frame(idDp="NEON.D13.WLOU.DP0.20053.001.01325.102.100.000",stringsAsFactors=FALSE)
+} else if (evalType == "coLoc"){
+  # A data frame of co-located DP IDs. Data will be read in and available analysis for each pair as a set
+  # !!!The parameter file from S3 needs to be re-written in the format of idDps given below (in this if statement)
+  # testPara <- aws.s3::s3readRDS(object = "params/testParaCoLoc.rds",bucket = bucket)
+  # idDps <- base::c(testPara$idDp, testPara$idDpCoLoc) %>%  base::gsub(pattern = "[\"]", replacement = "")
+  idDps <- data.frame(idDp="NEON.D10.CPER.DP0.00022.001.01324.000.040.000", # Main DP ID
+                      idDpCoLoc="NEON.D10.CPER.DP0.00023.001.01315.000.040.000", # Colocated DP ID
+                         stringsAsFactors=FALSE)
 
-# Either download or read in the L0 data for the time period of interest. Note, it is wise to downsample this data to every 5 min or so
-fileData=paste0('/scratch/SOM/Drift/',idDp,'.RData') # Name of the data file we'll either be saving or loading
-if(dnld == TRUE){
-  yearMnthBgn <- '2018-06' # Format YYYY-DD as a string
-  yearMnthEnd <- '2021-01' # Format YYYY-DD as a string
-  timeAgr <- 5 # minutes
-  
-  timeDist <- base::as.difftime(timeAgr,units="mins") # Time sampling interval in minutes
-  
-  yearEnd <- base::as.numeric(base::substr(yearMnthEnd,start=1,stop=4))
-  mnthEnd <- base::as.numeric(base::substr(yearMnthEnd,start=6,stop=7))
+} else if (evalType == "allLocs"){
+  # Get the full list of available drift-corrected data in the S3 bucket for a DP ID and term combo (and optionally filtered for a single site)
+  idDpMain="DP0.20053" # DP ID (you can find the DP ID with Blizzard L0 data viewer). e.g. DP0.20053
+  idTerm="01325" # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+  site='ARIK' # A single 4-character site code if you want to narrow down to a site. Otherwise, NULL for all sites.
 
-  if(mnthEnd == 12){
-    mnthEnd <- '01'
-    yearEnd <- base::as.character(yearEnd + 1)
+  if (is.null(site)){
+    prfx <- paste0('data/L1drift/',idDpMain)
   } else {
-    mnthEnd <- base::as.character(mnthEnd + 1)
+    prfx <- paste0('data/L1drift/',idDpMain,'/',site)
   }
+  message('Querying the S3 bucket...')
+  files <- aws.s3::get_bucket(bucket=bucket,
+                              prefix=prfx,
+                              max=Inf
+  )
+  files <- unlist(lapply(files,FUN=function(idx){idx$Key}))
+  idDps <- lapply(files,base::regexpr,pattern=paste0('NEON.D[0-9]{2}.[A-Z]{4}.',idDpMain,'.001.',idTerm,'.[0-9]{3}.[0-9]{3}.[0-9]{3}_',timeAgr))
+  idDps <- unique(unlist(base::regmatches(files,idDps)))
+  idDps <- substr(idDps,start=1,stop=45)
 
-  # Set up the output time sequence
-  timeBgn <- base::strptime(base::paste0(yearMnthBgn,'-01'),format="%Y-%m-%d",tz='GMT') # Start time
-  timeEnd <- base::strptime(base::paste0(yearEnd,'-',mnthEnd,'-01'),format="%Y-%m-%d",tz='GMT')-timeDist
-  timeBgn <- base::as.POSIXct(base::seq.POSIXt(from=timeBgn,to=timeEnd,by=timeDist,tz="GMT"))
-  timeEnd <- timeBgn + timeDist
-  numData <- base::length(timeBgn)
+  idDps <- data.frame(idDp=idDps,stringsAsFactors=FALSE)
+}
 
-  # We're going to grab data for each month and string it together
-  yearMnth <- base::unique(base::format(timeBgn,format='%Y-%m'))
-  data <- vector(mode='list',length=length(yearMnth)) # Initialize
-  names(data) <- yearMnth
+# =========================================================================== #
+#                      DOWNLOAD DRIFT CORRECTED DATA
+# =========================================================================== #
 
-  for(idxMnth in yearMnth){
-    print(idxMnth)
+# If we're doing co-located analysis, we'll pass through the download twice to get both the main sensor and colocated sensor 
+if(evalType == 'coLoc'){
+  numIter <- 2 
+} else {
+  numIter <- 1
+}
 
-    # Get the end time for the data this month
-    yearEndIdx <- base::as.numeric(base::substr(idxMnth,start=1,stop=4))
-    mnthEndIdx <- base::as.numeric(base::substr(idxMnth,start=6,stop=7))
+for(idxRow in seq_len(nrow(idDps))){
+  dataMain <- NULL
+  dataCoLoc <- NULL
+  
+  # Run through the both main and co-located sensor as necessary
+  for(idxIter in seq_len(numIter)){
     
-    if(mnthEndIdx == 12){
-      mnthEndIdx <- '01'
-      yearEndIdx <- base::as.character(yearEndIdx + 1)
-    } else {
-      mnthEndIdx <- base::as.character(mnthEndIdx + 1)
+    # main sensor or co-located?
+    if(idxIter == 1){
+      # Main sensor
+      idDp <- idDps$idDp[idxRow] # Full DP ID
+    } else if (idxIter == 2) {
+      # Co-located sensor
+      idDp <- idDps$idDpCoLoc[idxRow] # Full DP ID
+    }
+  
+    # Query the S3 bucket for all files with this DP ID
+    message(paste0('Querying the S3 bucket for all available ',idDp, ' files'))
+    siteIdx <- substr(x=idDp,start=10,stop=13)
+    idDpMainIdx <- substr(x=idDp,start=15,stop=23)
+    #idTermIdx <- substr(x=idDp,start=29,stop=33)
+    prfxIdx <- paste0('data/L1drift/',idDpMainIdx,'/',siteIdx,'/',idDp,'_',timeAgr)
+    filesIdx <- aws.s3::get_bucket(bucket=bucket,
+                                   prefix=prfxIdx,
+                                   max=Inf
+    )
+    filesIdx <- sort(unlist(lapply(filesIdx,FUN=function(idx){idx$Key})))
+
+    # Open them and string them together
+    message(paste0('Reading ',length(filesIdx),' files for ',idDp, ' into data frame'))
+    
+    data <- lapply(filesIdx,aws.s3::s3readRDS,bucket = bucket)
+    data <- do.call(rbind,data)
+    
+    # Record as the main sensor or co-located sensor
+    if(idxIter == 1){
+      # Main sensor
+      dataMain <- data
+    } else if (idxIter == 2) {
+      # Co-located sensor
+      dataCoLoc <- data
     }
     
-    timeBgnIdx <- base::strptime(base::paste0(idxMnth,'-01'),format="%Y-%m-%d",tz='GMT') # Start time
-    timeEndIdx <- base::strptime(base::paste0(yearEndIdx,'-',mnthEndIdx,'-01'),format="%Y-%m-%d",tz='GMT')
-    
-    # Grab the data
-    data[[idxMnth]] <- som::wrap.extr.neon.dp.psto(idDp=list(idDp),
-                                 timeBgn=timeBgnIdx,
-                                 timeEnd=timeEndIdx,
-                                 MethRglr= c("none","CybiEc")[2],
-                                 Freq=1/60/timeAgr,
-                                 WndwRglr = c("Cntr", "Lead", "Trlg")[3],
-                                 IdxWndw = c("Clst","IdxWndwMin","IdxWndwMax")[2],
-                                 Srvr=c("https://den-prodpresto-1.ci.neoninternal.org:8443"), 
-                                 Type=c('numc','str')[1],
-                                 CredPsto=NULL,
-                                 PrcsSec = 3
-    )[[1]] # Just doing one data stream for now, but could do multiple
-    
-  } # end loop around months
-  
-  # Combine all the data into a single data frame and save it
-  data <- do.call(rbind,data)
-  save(data,file=fileData)
-  
-} else {
-  
-  # Just load it in!
-  load(file=fileData)
-}
-
-
-
-
-
-
-
-# Grab the L1 data for comparison
-fileDataComp=paste0('/scratch/SOM/Drift/',
-                    idDpComp$site,'.',
-                    idDpComp$idDpMain,'.',
-                    idDpComp$idDpMain,'.',
-                    idDpComp$locHor,'.',
-                    idDpComp$locVer,'.',
-                    idDpComp$wndwAgr,'.',
-                    '.RData') # Name of the data file we'll either be saving or loading
-if(compL1 == TRUE && dnldComp == TRUE){
-  yearMnthBgn <- '2018-06' # Format YYYY-DD as a string
-  yearMnthEnd <- '2021-01' # Format YYYY-DD as a string
-  timeAgr <- 30 # minutes
-  
-  timeDist <- base::as.difftime(timeAgr,units="mins") # Time sampling interval in minutes
-  
-  yearEnd <- base::as.numeric(base::substr(yearMnthEnd,start=1,stop=4))
-  mnthEnd <- base::as.numeric(base::substr(yearMnthEnd,start=6,stop=7))
-  
-  if(mnthEnd == 12){
-    mnthEnd <- '01'
-    yearEnd <- base::as.character(yearEnd + 1)
-  } else {
-    mnthEnd <- base::as.character(mnthEnd + 1)
   }
   
-  # Set up the output time sequence
-  timeBgn <- base::strptime(base::paste0(yearMnthBgn,'-01'),format="%Y-%m-%d",tz='GMT') # Start time
-  timeEnd <- base::strptime(base::paste0(yearEnd,'-',mnthEnd,'-01'),format="%Y-%m-%d",tz='GMT')-timeDist
-  timeBgn <- base::as.POSIXct(base::seq.POSIXt(from=timeBgn,to=timeEnd,by=timeDist,tz="GMT"))
-  timeEnd <- timeBgn + timeDist
-  numData <- base::length(timeBgn)
+  # ========================================================================= #
+  #                               Plots 
+  # ========================================================================= #
+  # Plot the main sensor
+  message(paste0('Plotting ',idDps$idDp[idxRow]))
+  def.plot.drft(data=dataMain,idDp=idDps$idDp[idxRow])
   
-  # We're going to grab data for each month and string it together
-  yearMnth <- base::unique(base::format(timeBgn,format='%Y-%m'))
-  dataComp <- vector(mode='list',length=length(yearMnth)) # Initialize
-  names(dataComp) <- yearMnth
-  
-  for(idxMnth in yearMnth){
-    print(idxMnth)
-    
-    # Get the year and month
-    yearIdx <- base::as.numeric(base::substr(idxMnth,start=1,stop=4))
-    mnthIdx <- base::as.numeric(base::substr(idxMnth,start=6,stop=7))
-    
-    # Grab the data
-    dataComp[[idxMnth]] <- tryCatch(
-                            som::def.neon.api.get.data(
-                                  site=idDpComp$site,
-                                  idDpMain=idDpComp$idDpMain,
-                                  locHor=idDpComp$locHor,
-                                  locVer=idDpComp$locVer,
-                                  wndwAgr=idDpComp$wndwAgr,
-                                  year=yearIdx,
-                                  mnth=mnthIdx,
-                                  Pack=idDpComp$Pack
-                            ),
-                            error=function(e){NULL}
-                            )
-    
-  } # end loop around months
-  
-  # Combine all the data into a single data frame and save it
-  dataComp <- do.call(rbind,dataComp)
-  save(dataComp,file=fileDataComp)
-  
-} else if (compL1 == TRUE){
-  
-  # Just load it in!
-  load(file=fileDataComp)
-}
-
-
-
-
-
-
-
-urlBaseApi <- 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'
-
-# Get the asset install history
-timeBgnStr <- format(data$time[1],'%Y-%m-%dT%H:%M:%OSZ')# Begin range to query asset install history
-timeEndStr <- format(tail(data$time,1),'%Y-%m-%dT%H:%M:%OSZ') # End range to query asset install history
-urlApi <- base::paste0(urlBaseApi,'/asset-installs?meas-strm-name=',idDp,'&install-range-begin=',timeBgnStr,'&install-range-cutoff=',timeEndStr,collapse='')
-rspn <- httr::GET(url=urlApi)
-cntn <- httr::content(rspn,as="text")
-xml <- XML::xmlParse(cntn)
-
-assetHist <- def.read.asst.xml.neon(asstXml = xml) # Guy's function
-# assetHist$installDate <- as.POSIXct(assetHist$installDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
-# assetHist$removeDate <- as.POSIXct(assetHist$removeDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
-
-
-# Apply the calibration & drift correction for every sensor install period
-data$calibrated <- NA
-data$driftCorrected <- NA
-for (idxInst in seq_len(nrow(assetHist))){
-  
-  urlApi <- base::paste0(urlBaseApi,'/calibrations?asset-stream-key=',assetHist$assetUid[idxInst],':',streamId,
-                         '&startdate=','2012-01-01T00:00:00.000Z','&enddate=','2021-03-01T00:00:00.000Z',collapse='')
-  rspn <- httr::GET(url=urlApi,httr::add_headers(Accept = "application/json"))
-  cntn <- httr::content(rspn,as="text")
-  cal <- jsonlite::fromJSON(cntn,simplifyDataFrame=T, flatten=T)$calibration
-  cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validStartTime/1000 # milliseconds since 1970
-  cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validEndTime/1000 # milliseconds since 1970
-  
-  # # Put cal metadata into a data frame - This not used, but maybe in the future...
-  # metaCal <- base::data.frame(path=NA,
-  #                             file=cal$certificateFileName,
-  #                             timeValiBgn=cal$validStartTime,
-  #                             timeValiEnd=cal$validEndTime,
-  #                             id=base::as.numeric(cal$certificateNumber),
-  #                             stringsAsFactors=FALSE)
-  # 
-  # # Select the appropriate cal for the time period
-  # calSlct <- NEONprocIS.cal::def.cal.slct(metaCal=metaCal,
-  #                              TimeBgn=assetHist$installDate[idxInst],
-  #                              TimeEnd=assetHist$removeDate[idxInst])
-  # 
-  
-  # Get the calibration coefficients for the install period
-  calInst <- cal[cal$validStartTime < assetHist$installDate[idxInst],] # Restrict calibrations to those before the sensor was installed
-  idxCalInst <- which.min(assetHist$installDate[idxInst]-calInst$validStartTime) # Get the most recent cal prior to sensor install
-  calCoefInst <- calInst$calibrationMetadatum[idxCalInst][[1]] # Get the calibration coefficients.
-  nameCalCoefInst <- names(calCoefInst)
-  nameCalCoefInst[nameCalCoefInst=='name'] <- "Name"
-  nameCalCoefInst[nameCalCoefInst=='value'] <- "Value"
-  names(calCoefInst) <-nameCalCoefInst
-  calCoefInst <- calCoefInst[!grepl('U_CVAL',calCoefInst$Name),]
-  infoCal <- list(cal=calCoefInst)
-  
-  # Apply calibration
-  func <-
-    NEONprocIS.cal::def.cal.func.poly(infoCal = infoCal, Prfx='CVALA', log = log)
-  
-  # Convert data using the calibration function
-  setData <- data$time >= assetHist$installDate[idxInst] & 
-             data$time >= calInst$validStartTime[idxCalInst] & 
-            (is.na(assetHist$removeDate[idxInst]) | data$time < assetHist$removeDate[idxInst])
-  data$calibrated[setData] <- stats::predict(object = func, newdata = data$data[setData])
-  
-  
-  
-  
-  
-  
-  # Now get the cal that has drift coefficients for the install period (the subsequent cal has these coefs)
-  calDrft <- cal[cal$validStartTime > assetHist$removeDate[idxInst],] # Restrict calibrations to those after the sensor left
-  idxCalDrft <- which.min(calDrft$validStartTime-assetHist$removeDate[idxInst]) # Get the most recent cal after sensor left
-  
-  # Move on if we don't have a subsequent cal
-  if(length(idxCalDrft) == 0){
-    next
+  # plot the co-located sensor
+  if(evalType == 'coLoc'){
+    message(paste0('Plotting ',idDps$idDpCoLoc[idxRow]))
+    def.plot.drft(data=dataCoLoc,idDp=idDps$idDpCoLoc[idxRow])
   }
+    
+  # ========================================================================= #
+  #                               ANALYSIS 
+  # ========================================================================= #
   
-  # Pull the drift coefficients
-  calCoefDrift <- calDrft$calibrationMetadatum[idxCalDrft][[1]] # Get the calibration coefficients.
-  coefDrftA <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE6']
-  coefDrftB <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE7']
-  coefDrftC <- calCoefDrift$value[calCoefDrift$name == 'U_CVALE8']
+  # TODO assess drift periods using the instDate column (sensor swap date) in dataMain and/or dataCoLoc 
   
-  # Move on if no drift coefficients
-  if(length(c(coefDrftA,coefDrftB,coefDrftC)) != 3){
-    next
-  }
-  
-  # Apply drift correction
-  daysSinceCal <- as.numeric(difftime(data$time,calInst$validStartTime[idxCalInst],units='days'))
-  data$driftCorrected[setData] <- data$calibrated[setData]-(coefDrftA*data$calibrated[setData]^2 + 
-                                                            coefDrftB*data$calibrated[setData] + 
-                                                            coefDrftC)*daysSinceCal[setData]
 }
-
-
-# Make some plots
-dataPlotRaw <- data[,names(data) %in% c('time','data')]
-dataPlotRaw <- reshape2::melt(dataPlotRaw,id.vars=c('time'))
-plotRaw <- plotly::plot_ly(data=dataPlotRaw, x=~time, y=~value, split = ~variable, type='scatter', mode='lines') %>%
-  plotly::add_markers(x=assetHist$installDate,y=min(dataPlotRaw$value,na.rm=TRUE),name='Sensor swap',inherit=FALSE) %>%
-  plotly::layout(margin = list(b = 50, t = 50, r=50),
-                 title = idDp,
-                 xaxis = list(title = base::paste0(c(rep("\n&nbsp;", 3),
-                                                     rep("&nbsp;", 20),
-                                                     paste0("Date-Time"),
-                                                     rep("&nbsp;", 20)),
-                                                   collapse = ""),
-                              nticks=6,
-                              range = dataPlotRaw$time[c(1,base::length(dataPlotRaw$time))],
-                              zeroline=FALSE
-                 ))
-print(plotRaw)
-
-
-
-
-
-dataPlot <- data[,names(data) %in% c('time','calibrated','driftCorrected')]
-dataPlot <- reshape2::melt(dataPlot,id.vars=c('time'))
-
-# plot<-ggplot(dataPlot,aes(time,value,colour=variable)) +
-#   geom_line() + labs(title=idDp)
-
-plot <- plotly::plot_ly(data=dataPlot, x=~time, y=~value, split = ~variable, type='scatter', mode='lines') %>%
-  plotly::layout(margin = list(b = 50, t = 50, r=50),
-                 title = idDp,
-                 xaxis = list(title = base::paste0(c(rep("\n&nbsp;", 3),
-                                                     rep("&nbsp;", 20),
-                                                     paste0("Date-Time"),
-                                                     rep("&nbsp;", 20)),
-                                                   collapse = ""),
-                              nticks=6,
-                              range = dataPlot$time[c(1,base::length(dataPlot$time))],
-                              zeroline=FALSE
-                 )) 
-
-if (compL1 == TRUE){
-  plot <- plot %>% 
-    plotly::add_lines(x=dataComp$startDateTime,y=dataComp[[idDpComp$term]],name=idDpComp$term,inherit=FALSE)
-
-}
-
-# Add in sensor swap points
-plot <- plot %>% 
-  plotly::add_markers(x=assetHist$installDate,y=min(dataPlot$value,na.rm=TRUE),name='Sensor swap',inherit=FALSE) %>%
-  
-print(plot)
