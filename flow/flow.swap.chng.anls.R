@@ -6,8 +6,9 @@
 #' pre-swap reading. Do this for both the calibrated readings
 #' and the drift corrected readings. Generate a box plot of these 
 #' differences for each data product.
+#' @details The 2021-04-29 implementation is not adequate for dpIds with multiple terms of interest. Use flow.drft.eval and wrap.swap.chng.anls instead.
 #' @seealso flow.save.psto.s3.R
-
+# 
 # Changelog / Contributions
 #   2021-04-29 Guy Litt, originally created
 
