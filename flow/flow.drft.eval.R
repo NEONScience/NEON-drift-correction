@@ -67,11 +67,12 @@ if(evalType == "cstm"){
   # If interested in conducting the analysis on swapGaps using existing drift-corrected data in the bucket,
   # skip the DOWNLOAD DRIFT CORRECTED DATA  section and skip to ANALYSIS
   dlData <- FALSE
-  allDpIdzVerTerm <- c("DP0.00003.001.TERMN","DP0.00004.001.TERMN","DP0.00014.001.TERMN","DP0.00022.001.TERM",
+  allDpIdzVerTerm <- c("DP0.00003.001.TERMN","DP0.00004.001.TERMN",
+                       "DP0.00014.001.01332","DP0.00014.001.01333","DP0.00022.001.TERMN",
                        "DP0.00024.001.01320","DP0.00024.001.01321","DP0.00066.001.TERMN",
                        "DP0.00098.001.01309","DP0.00098.001.01357",
                        "DP0.20016.001.TERMN","DP0.20042.001.TERMN", "DP0.20053.001.TERMN",
-                       "DP0.20261.001.TERMN","DP0.20264.001.TERMN")
+                       "DP0.20261.001.01320","DP0.20261.001.01321","DP0.20264.001.TERMN")
   idDps <- data.frame(idDp=paste0("NEON.DOM.SITE.",allDpIdzVerTerm,".HOR.VER.TMI"),stringsAsFactors=FALSE)
   # Note that once this is run for a given dp, and assuming not interested in updating plots with recent results, result plots may be accessed as follows:
   # print(aws.s3::s3readRDS(object='analysis/sensorSwap/plots/DP0.00004_60GapMins_ReadingChangeFromSwapRawVsDrift.rds', bucket = bucket)) # using DP0.00004 (baro P) as an example
