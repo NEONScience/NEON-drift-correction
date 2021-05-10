@@ -1,7 +1,8 @@
 #' @title NEON ECS S3 bucket design for drift working group
 #' @author Guy Litt
 #' @description This script shouldn't run much - just sets up the bucket.
-#'  Users will be able to create their own sub-folders as needed
+#'  Users will be able to create their own sub-folders as needed, but some 
+#'  folder structure may be defined here.
 
 # Changelog / contributions
 #   2021-03-23 originally created, GL
@@ -67,4 +68,7 @@ if(aws.s3::bucket_exists(bucket = "dev-is-drift")){
   aws.s3::put_folder(folder="analysis/colocation", bucket)
   aws.s3::put_folder(folder="analysis/colocation/plots", bucket)
   aws.s3::put_folder(folder="analysis/colocation/tables", bucket)
+  aws.s3::put_folder(folder="analysis/sensorSwap/plots",bucket)
+  aws.s3::put_folder(folder="analysis/sensorSwap/tables",bucket)
+  
 }
