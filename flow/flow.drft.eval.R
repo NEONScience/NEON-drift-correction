@@ -72,7 +72,8 @@ if(evalType == "cstm"){
                        "DP0.00024.001.01320","DP0.00024.001.01321","DP0.00066.001.TERMN",
                        "DP0.00098.001.01309","DP0.00098.001.01357",
                        "DP0.20016.001.TERMN","DP0.20042.001.TERMN", "DP0.20053.001.TERMN",
-                       "DP0.20261.001.01320","DP0.20261.001.01321","DP0.20264.001.TERMN")
+                       "DP0.20261.001.01320","DP0.20261.001.01321",
+                       "DP0.20264.001.02887","DP0.20264.001.02888","DP0.20264.001.02889","DP0.20264.001.02890","DP0.20264.001.02891","DP0.20264.001.02892","DP0.20264.001.02893","DP0.20264.001.02894","DP0.20264.001.02895","DP0.20264.001.02896") # 02887, 02888, 02889, 02890, 02891, 02892, 02893, 02894, 02895, 02896
   idDps <- data.frame(idDp=paste0("NEON.DOM.SITE.",allDpIdzVerTerm,".HOR.VER.TMI"),stringsAsFactors=FALSE)
   # Note that once this is run for a given dp, and assuming not interested in updating plots with recent results, result plots may be accessed as follows:
   # print(aws.s3::s3readRDS(object='analysis/sensorSwap/plots/DP0.00004_60GapMins_ReadingChangeFromSwapRawVsDrift.rds', bucket = bucket)) # using DP0.00004 (baro P) as an example
