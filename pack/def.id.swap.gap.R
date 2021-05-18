@@ -13,11 +13,16 @@
 #' 
 # Changelog 
 #   2021-04-23 Originally created, Guy Litt
+#  TODO Search for a swap gap within a specified time range, srchTimeMins If gap identified, redefine the swap gap.
+#   E.g. WALK.DP0.00004 200.000 - instDate defined as 2020-10-01 18:47:03, but data begin at 18:40:57 following a 5+ hour gap for sensor swap.
 # instIdCol <- "instDate"
 # dataCol <- "data"
 # timeCol <- "time"
 # def.id.swap.gap <- function(dtDrft, swapIdCol = "U_CVALE9",maxGapDataPts = NULL ){
-def.id.swap.gap <- function(dtDrft, instIdCol = "instDate",  swapIdCol = "U_CVALE9", dataCol ="data", timeCol = "time" ){  
+
+
+
+def.id.swap.gap <- function(dtDrft, instIdCol = "instDate",  swapIdCol = "U_CVALE9", dataCol ="data", timeCol = "time", srchTimeMins = 60  ){  
   if(!"data.table" %in% base::class(dtDrft)){
     dtDrft <- data.table::as.data.table(dtDrft)
   }
@@ -44,50 +49,45 @@ def.id.swap.gap <- function(dtDrft, instIdCol = "instDate",  swapIdCol = "U_CVAL
 
   swapSumm <- swapSumm[base::which(!base::is.na(swapSumm[[instIdCol]])),]
   
+  # Identify TRUE gaps in the data:
   if(base::nrow(swapSumm)>1){
-    endInstPrev <- swapSumm$dataEnd[1:(base::nrow(swapSumm)-1)]
+    rsltNaGap <- def.na.run.idxs(dt = dtDrft, dataCol = dataCol)
+    
+    # Now work off of defined NA time ranges & find which ones are w/in threshold of the swap gaps of interest
+    timeBgnsNaThr <- dtDrft[[timeCol]][rsltNaGap$idxsNaBgn]
+    timeEndsNaThr <- dtDrft[[timeCol]][rsltNaGap$idxsNaEnd]
+    
+    # -------------
+    endInstPrevThr <- swapSumm$dataEnd[1:(base::nrow(swapSumm)-1)] -  base::as.difftime(srchTimeMins, units = "mins")
+    bgnInstNextThr <- swapSumm$dataBgn[2:base::nrow(swapSumm)] + base::as.difftime(srchTimeMins, units = "mins")
+    endInstPrev <- swapSumm$dataEnd[1:(base::nrow(swapSumm)-1)] 
     bgnInstNext <- swapSumm$dataBgn[2:base::nrow(swapSumm)]
-    swapSumm$diffMins <- base::c(NA,base::as.difftime(bgnInstNext - endInstPrev, units = "mins"))
+    swapSumm$diffMinsNonThr <- base::c(NA,base::difftime(bgnInstNext,endInstPrev, units = "mins"))
+    # ------------
+    # The indices in dtDrft that correspond to time window around a swap: 
+    idxsTimeRgn <- lapply(1:(nrow(swapSumm)-1), function(i) intersect(which(dtDrft[[timeCol]] >  endInstPrevThr[i]),
+                                                   which(dtDrft[[timeCol]] < bgnInstNextThr[i]) ) )
+    
+    # The indices in rsltNaGap that align with time window around a swap:
+    idxsNaGapWndo <- lapply(1:length(idxsTimeRgn), function(i) intersect(which(rsltNaGap$idxsNaBgn <= max(idxsTimeRgn[[i]])),
+                                                        which(rsltNaGap$idxsNaEnd >= min(idxsTimeRgn[[i]])) ) )
+    
+    if(length(idxsNaGapWndo) > 0){
+      diffTimz <- base::lapply(idxsNaGapWndo, function(j) 
+                                            ifelse(!is.null(j), base::difftime(dtDrft[[timeCol]][rsltNaGap$idxsNaEnd[j]],
+                                                           dtDrft[[timeCol]][rsltNaGap$idxsNaBgn[j]],
+                                                           units = "mins"),NA ))
+      
+      #TODO match diffTimz w/ actual time in swapSumm
+      swapSumm$diffMins <- c(NA, unlist(diffTimz))
+    } else {
+      swapSumm$diffMins <- NA
+    }
     
   } else {
+    swapSumm$diffMinsNonThr <- NA
     swapSumm$diffMins <- NA
   }
 
   return(swapSumm)
-  # # ============= RLE approach (not working well)
-  # # Identify sensor swap dates:
-  # swapRle <- base::rle((dtDrft[[swapIdCol]]))
-  # # Find the begin/end indices of all sensor swaps
-  # idxsSwap <- base::cumsum(swapRle$lengths)
-  # 
-  # idxSwapEnd <- idxsSwap[base::which(swapRle$lengths > 1)]
-  # idxSwapBgn <- idxSwapEnd - swapRle$lengths[base::which(swapRle$lengths > 1)] + 1
-  # 
-  # # Limit to just the indices that have begin/end pairs (no edge cases)
-  # idxsSwapBgnSub <- idxSwapBgn[2:length(idxSwapBgn)]
-  # idxsSwapEndSub <- idxSwapEnd[1:(length(idxSwapEnd)-1)]
-  # 
-  # # Find the next swap begin:
-  # gapPts <- idxsSwapBgnSub - idxsSwapEndSub
-  # 
-  # # Subset to gaps of interest (if there is a threshold)
-  # if(!base::is.null(maxGapDataPts)){
-  #   idxShrtGaps <- base::which(gapPts <= maxGapDataPts)
-  # } else {
-  #   idxShrtGaps <- gapPts
-  # }
-  # 
-  # dfSwapGaps <- base::data.frame(idxsBgnSwap = base::integer(base::length(idxShrtGaps)),
-  #                            idxsEndSwap = base::integer(base::length(idxShrtGaps)),
-  #                            swapLen = base::integer(base::length(idxShrtGaps)),
-  #                            stringsAsFactors = FALSE)
-  # if(length(idxShrtGaps) == 0){
-  #   message("No sensor swap time gaps found below the maxGapDataPts threshold.")
-  # } else {
-  #   dfSwapGaps$idxsBgnSwap <- idxsSwapEndSub[idxShrtGaps]
-  #   dfSwapGaps$idxsEndSwap <- idxsSwapBgnSub[idxShrtGaps]
-  #   dfSwapGaps$swapLen <- dfSwapGaps$idxsEndSwap - dfSwapGaps$idxsBgnSwap
-  # }
-  # 
-  # return(dfSwapGaps)
 }
