@@ -5,16 +5,19 @@
 # Changelog / contributions
 #  2021-04-29 originally created, CS
 #  2021-05-07 added swap gap analysis, GL
+rm(list=ls())
 library(aws.s3)
 
 # Import functions
-funcDir <- '~/R/NEON-drift-correction/pack/'
+mainDir <- '~/R/NEON-drift-correction/'
+funcDir <- paste0(mainDir,'pack/')
+flowDir <- paste0(mainDir,'flow/')
 sapply(list.files(funcDir, pattern = ".R"), function(x) source(paste0(funcDir,x)))
 
 # TODO Define these parameters
-evalType <- c("cstm", "coLoc","allLocs","swapGapsNoDl")[3] # cstm for a custom approach (individual specification of DP IDs), coLoc to analyze pairs of co-located sensors, allLocs to grab whatever is in the bucket, swapGapsNoDl just runs the swap gap analysis wrapper
+evalType <- c("cstm", "coLoc","allLocs","swapGapsNoDl")[2] # cstm for a custom approach (individual specification of DP IDs), coLoc to analyze pairs of co-located sensors, allLocs to grab whatever is in the bucket, swapGapsNoDl just runs the swap gap analysis wrapper
 timeAgr = 5 # minutes - L0 sampling interval in which the L0 data were gathered and drift corrected. Probably 5 minutes.
-dlData <- TRUE # Should data be downloaded?
+
 # =========================================================================== #
 #                        SET S3 ENVIRONMENT/ACCESS
 # =========================================================================== #
@@ -37,9 +40,11 @@ if(evalType == "cstm"){
   # !!!The parameter file from S3 needs to be re-written in the format of idDps given below (in this if statement)
   # testPara <- aws.s3::s3readRDS(object = "params/testParaCoLoc.rds",bucket = bucket)
   # idDps <- base::c(testPara$idDp, testPara$idDpCoLoc) %>%  base::gsub(pattern = "[\"]", replacement = "")
-  idDps <- data.frame(idDp="NEON.D10.CPER.DP0.00022.001.01324.000.040.000", # Main DP ID
-                      idDpCoLoc="NEON.D10.CPER.DP0.00023.001.01315.000.040.000", # Colocated DP ID
-                         stringsAsFactors=FALSE)
+  #source(paste0(flowDir,'NR01_CMP22comparison.R'))
+  #source(paste0(flowDir,'NR01_DeltaTcomparison.R'))
+  #source(paste0(flowDir,'DeltaT_CMP22comparison.R'))
+  source(paste0(flowDir,'hmp155_TAAT_tempComparison.R'))
+  
 
 } else if (evalType == "allLocs"){
   # Get the full list of available drift-corrected data in the S3 bucket for a DP ID and term combo (and optionally filtered for a single site)
@@ -64,9 +69,7 @@ if(evalType == "cstm"){
 
   idDps <- data.frame(idDp=idDps,stringsAsFactors=FALSE)
 } else if (evalType == "swapGapsNoDl"){
-  # If interested in conducting the analysis on swapGaps using existing drift-corrected data in the bucket,
-  # skip the DOWNLOAD DRIFT CORRECTED DATA  section and skip to ANALYSIS
-  dlData <- FALSE
+  # Conducting the analysis on swapGaps using existing drift-corrected data in the bucket
   allDpIdzVerTerm <- c("DP0.00003.001.TERMN","DP0.00004.001.TERMN",
                        "DP0.00014.001.01332","DP0.00014.001.01333","DP0.00022.001.TERMN",
                        "DP0.00024.001.01320","DP0.00024.001.01321","DP0.00066.001.TERMN",
@@ -80,12 +83,22 @@ if(evalType == "cstm"){
 }
 
 # =========================================================================== #
-#                      DOWNLOAD DRIFT CORRECTED DATA
+#                        Load in NEON site info
 # =========================================================================== #
-if (dlData){
+fileDomnSite <- "/scratch/SOM/dataProductInfo/DomainSiteList.csv" # List of domains and associated sites (domain, state, etc.)
+DomnSite <- utils::read.csv(file=fileDomnSite,header=TRUE,stringsAsFactors=FALSE)
+
+
+if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
+  
+  # =========================================================================== #
+  #                      DOWNLOAD DRIFT CORRECTED DATA
+  # =========================================================================== #
+  
   # If we're doing co-located analysis, we'll pass through the download twice to get both the main sensor and colocated sensor 
   if(evalType == 'coLoc'){
     numIter <- 2 
+    coLocConvergence <- list()
   } else {
     numIter <- 1
   }
@@ -118,11 +131,42 @@ if (dlData){
       )
       filesIdx <- sort(unlist(lapply(filesIdx,FUN=function(idx){idx$Key})))
       
+      if(length(filesIdx) == 0){
+        next
+      }
+      
       # Open them and string them together
       message(paste0('Reading ',length(filesIdx),' files for ',idDp, ' into data frame'))
       
       data <- lapply(filesIdx,aws.s3::s3readRDS,bucket = bucket)
       data <- do.call(rbind,data)
+      
+      # Split the DP ID to get the site
+      idDpSplt <- som::def.splt.neon.id.dp.full(idDp) 
+      
+      # Get location information
+      loc <- jsonify::from_json(paste0('https://data.neonscience.org/api/v0/locations/',idDpSplt$site))$data
+      lat <- loc$locationDecimalLatitude
+      lon <- loc$locationDecimalLongitude
+      elev <- loc$locationElevation
+      
+      # Get zenith angle
+      data$zenith<-GeoLight::zenith(sun = GeoLight::solar(data$time),
+                                    lon = lon,
+                                    lat=lat)
+      
+      # Get theoretical solar insolation (making assumptions for RH and temperature)
+      jday <- as.POSIXlt(data$time)$yday 
+      theoSol <- insol::insolation(zenith = data$zenith,
+                                   jd = jday,
+                                   height = elev, #converting from feet to meters
+                                   visibility = 10,
+                                   RH = 30,
+                                   tempK=288.15, #temperature has to be in kelvins
+                                   O3 = 0.003,
+                                   alphag = 0.2)
+      theoSol <- as.data.frame(theoSol,stringsAsFactors = FALSE)
+      data$theoSol <- theoSol$In + theoSol$Id # Direct + diffuse
       
       # Record as the main sensor or co-located sensor
       if(idxIter == 1){
@@ -138,32 +182,179 @@ if (dlData){
     # ========================================================================= #
     #                               Plots 
     # ========================================================================= #
-    # Plot the main sensor
-    message(paste0('Plotting ',idDps$idDp[idxRow]))
-    def.plot.drft(data=dataMain,idDp=idDps$idDp[idxRow])
-    
-    # plot the co-located sensor
-    if(evalType == 'coLoc'){
-      message(paste0('Plotting ',idDps$idDpCoLoc[idxRow]))
-      def.plot.drft(data=dataCoLoc,idDp=idDps$idDpCoLoc[idxRow])
+    if (FALSE){
+      
+      # Plot the main sensor
+      message(paste0('Plotting ',idDps$idDp[idxRow]))
+      def.plot.drft(data=dataMain,idDp=idDps$idDp[idxRow])
+      
+      # plot the co-located sensor
+      if(evalType == 'coLoc'){
+        message(paste0('Plotting ',idDps$idDpCoLoc[idxRow]))
+        def.plot.drft(data=dataCoLoc,idDp=idDps$idDpCoLoc[idxRow])
+        
+        def.plot.drft.coLoc(dataMain=dataMain,
+                            dataCoLoc=dataCoLoc,
+                            idDpMain=idDps$idDp[idxRow],
+                            idDpCoLoc=idDps$idDpCoLoc[idxRow])
+        
+      }
+      
     }
     
-  }
-}
+    # =========================================================================== #
+    #                               ANALYSIS 
+    # =========================================================================== #
+    
+    # ------------------------- CO-LOCATED ANALYSIS ------------------------------- #
+    if(evalType == 'coLoc' && !is.null(dataMain) && !is.null(dataCoLoc)){
 
-# =========================================================================== #
-#                               ANALYSIS 
-# =========================================================================== #
+      # Restrict data to one hour around solar noon and clear-sky
+      if(FALSE){
+
+        # Convert all times to local standard time (assume co-located at same site)
+        tz <- DomnSite$TimeZone[DomnSite$SiteCode == idDpSplt$site]
+        timeDataMain <- dataMain$time
+        timeDataCoLoc <- dataCoLoc$time
+        attr(timeDataMain,'tzone') <- tz
+        attr(timeDataCoLoc,'tzone') <- tz
+
+        # Subset to within 1 hour of solar noon
+        timeDataMain <- as.POSIXlt(timeDataMain)
+        timeDataCoLoc <- as.POSIXlt(timeDataCoLoc)
+        dataMain <- subset(dataMain,subset=timeDataMain$hour >= 10 & timeDataMain$hour < 14)
+        dataCoLoc <- subset(dataCoLoc,subset=timeDataCoLoc$hour >= 10 & timeDataCoLoc$hour < 14)
+        
+        # Restrict to aligned daily peaks (within 10 min)
+        if(TRUE){
+          if(nrow(dataMain) != nrow(dataCoLoc)){
+            message('Need same data size for main and co-located sensors. Skipping...')
+            next
+          }
+          nDiv <- 60*4/timeAgr # Divide up into daily chunks. Must be the total number of points per day after restricting to solar noon bracket
+          dataMainCal <- matrix(dataMain$calibrated,nrow=nDiv,ncol=nrow(dataMain)/nDiv) # Each column is the subset
+          dataCoLocCal <- matrix(dataCoLoc$calibrated,nrow=nDiv,ncol=nrow(dataCoLoc)/nDiv) # Each column is the subset
+          setMaxMain <- apply(dataMainCal,2,FUN=function(col){
+            x <- which.max(col)
+            if(length(x) >= 1){
+              return(x[1])
+            } else {
+              return(NA)
+            }
+            }
+          )
+          setMaxCoLoc <- apply(dataCoLocCal,2,FUN=function(col){
+            x <- which.max(col)
+            if(length(x) >= 1){
+              return(x[1])
+            } else {
+              return(NA)
+            }
+          }
+          )
+          filt <- rep(TRUE,length(setMaxMain)) # set up a filter for non-aligned series
+          filt[abs(setMaxMain-setMaxCoLoc) > 2] <- FALSE
+          setKeep <- rep(filt,rep(nDiv,dim(dataMainCal)[2]))
+          dataMain <- subset(dataMain,subset=setKeep)
+          dataCoLoc <- subset(dataCoLoc,subset=setKeep)
+        }
+        
+        # Subset main sensor to clear-sky
+        nDiv <- 60/timeAgr # Divide up into n consecutive data points. Must be clean divider of the number of points in each day after restricting to solar noon bracket
+        diffSolTheo <- dataMain$theoSol-dataMain$calibrated
+        diffSolTheoMat <- matrix(diffSolTheo,nrow=nDiv,ncol=nrow(dataMain)/nDiv) # Each column is the subset
+        sdDiffTheoMat <- apply(diffSolTheoMat,2,sd) # Take standard deviation of each column 
+        sdDiffTheo <- rep(sdDiffTheoMat,rep(nDiv,dim(diffSolTheoMat)[2]))
+        setKeep <- sdDiffTheo < 6 & diffSolTheo < 400 & dataMain$calibrated > 200 # Criteria for clear sky
+        dataMain <- subset(dataMain,subset=setKeep)
+
+        # Subset co-located sensor to clear-sky
+        nDiv <- 60/timeAgr # Divide up into n consecutive data points. Must be clean divider of the number of points in each day after restricting to solar noon bracket
+        diffSolTheo <- dataCoLoc$theoSol-dataCoLoc$calibrated
+        diffSolTheoMat <- matrix(diffSolTheo,nrow=nDiv,ncol=nrow(dataCoLoc)/nDiv) # Each column is the subset
+        sdDiffTheoMat <- apply(diffSolTheoMat,2,sd) # Take standard deviation of each column 
+        sdDiffTheo <- rep(sdDiffTheoMat,rep(nDiv,dim(diffSolTheoMat)[2]))
+        setKeep <- sdDiffTheo < 6 & diffSolTheo < 400 & dataCoLoc$calibrated > 200 # Criteria for clear sky
+        dataCoLoc <- subset(dataCoLoc,subset=setKeep)
+
+      }
+      
+      # Restrict data to midnight
+      if(TRUE){
+        stop()
+        # Convert all times to local standard time (assume co-located at same site)
+        tz <- DomnSite$TimeZone[DomnSite$SiteCode == idDpSplt$site]
+        timeDataMain <- dataMain$time
+        timeDataCoLoc <- dataCoLoc$time
+        attr(timeDataMain,'tzone') <- tz
+        attr(timeDataCoLoc,'tzone') <- tz
+        
+        # Subset to midnight to 2 am
+        timeDataMain <- as.POSIXlt(timeDataMain)
+        timeDataCoLoc <- as.POSIXlt(timeDataCoLoc)
+        dataMain <- subset(dataMain,subset=timeDataMain$hour >= 0 & timeDataMain$hour < 2)
+        dataCoLoc <- subset(dataCoLoc,subset=timeDataMain$hour >= 0 & timeDataMain$hour < 2)
+        
+        # Subset to within 10 degrees
+        if(nrow(dataMain) != nrow(dataCoLoc)){
+          message('Need same data size for main and co-located sensors. Skipping...')
+          next
+        }
+        setKeep <- abs(dataMain$calibrated - dataCoLoc$calibrated) < 10
+        dataMain <- subset(dataMain,subset=setKeep)
+        dataCoLoc <- subset(dataCoLoc,subset=setKeep)
+      }
+      
+      if(nrow(dataMain) == 0 || nrow(dataCoLoc) == 0){
+        message('Filtering removed all rows. Skipping...')
+        next
+      }
+      
+      # Assess how the spread of co-located sensor data changes with drift-correction applied
+      # Negative values indicate a convergence of the co-located sensor values after drift correction
+      # Positive values indicate a divergence of the co-located sensor values after drift correction
+      coLocConvergence[[idxRow]] <- def.drft.coLoc(dataMain,dataCoLoc)
+      # --------------------------------------------------------------------------- #
+
+    } # End co-located analysis
+    
+  } # End loop around DP IDs
+
+} # End download and eval section
 
 
-# ------------------------- SWAP GAP ANALYSIS ------------------------------- #
-# Assess the data gap during sensor swaps b/w drift-corrected and plain calibrated:
-# Note this analysis automatically considers all sites available for given idDp(s)
-plotSwapGapRslt <- wrap.swap.chng.anls(idDpsVec = idDps$idDp,
-                                       bucket = bucket,
-                                       maxGapMins=60,
-                                       manlOtlrThr = FALSE)
+
+# ------------------ SYNTHESIZE CO-LOCATED ANALYSIS ------------------------- #
+coLocConvergenceAll <- do.call(rbind,coLocConvergence)
+names(coLocConvergenceAll)[1] <- 'DaysSinceInstall'
+# Create a box plot timeseries
+titl=base::paste0('Convergence/divergence of co-located NR01 & DeltaT sensors after drift correction')
+
+plotBoxConv <- plotly::plot_ly(coLocConvergenceAll,x=~DaysSinceInstall,y=~mean,type='box') %>%
+  plotly::layout(
+                 yaxis=list(title='Convergence (-) or Divergence (+) [W m-2]'),
+                 xaxis=list(title='Days Since Install',
+                            range = c(30,420)
+                            ),
+                 title=titl
+  )
+print(plotBoxConv)
+
 # --------------------------------------------------------------------------- #
-# TODO assess drift periods using the instDate column (sensor swap date) in dataMain and/or dataCoLoc 
+  
+
+
+  
+# ------------------------- SWAP GAP ANALYSIS ------------------------------- #
+if (evalType %in% c('swapGapsNoDl')){
+  
+  # Assess the data gap during sensor swaps b/w drift-corrected and plain calibrated:
+  # Note this analysis automatically considers all sites available for given idDp(s)
+  plotSwapGapRslt <- wrap.swap.chng.anls(idDpsVec = idDps$idDp,
+                                         bucket = bucket,
+                                         maxGapMins=60,
+                                         manlOtlrThr = FALSE)
+}
+# --------------------------------------------------------------------------- #
 
 

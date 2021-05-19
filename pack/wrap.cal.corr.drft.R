@@ -39,7 +39,7 @@ wrap.cal.corr.drft <- function(idDp,
   cntn <- httr::content(rspn,as="text")
   xml <- XML::xmlParse(cntn)
   
-  assetHist <- def.read.asst.xml.neon(asstXml = xml) # Guy's function
+  assetHist <- def.read.asst.xml.neon(asstXml = xml) # Guy's function. Note: the site and locMaximo columns aren't correct. All rows pertain to an intall at the specified idDp
   # assetHist$installDate <- as.POSIXct(assetHist$installDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
   # assetHist$removeDate <- as.POSIXct(assetHist$removeDate,format="%Y-%m-%dT%H:%M:%OSZ",tz="GMT")
   
