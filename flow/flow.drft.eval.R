@@ -1,4 +1,4 @@
-#' @title Flow script to grab presto data and save to s3 bucket
+#' @title Flow script to analyze impact of drift correction
 #' @author Cove Sturtevant, Guy Litt
 #' @description Download drift-corrected L0 data from the S3 bucket and analyze it
 
@@ -41,11 +41,23 @@ if(evalType == "cstm"){
   # testPara <- aws.s3::s3readRDS(object = "params/testParaCoLoc.rds",bucket = bucket)
   # idDps <- base::c(testPara$idDp, testPara$idDpCoLoc) %>%  base::gsub(pattern = "[\"]", replacement = "")
   #source(paste0(flowDir,'NR01_CMP22comparison.R'))
-  #source(paste0(flowDir,'NR01_DeltaTcomparison.R'))
+  source(paste0(flowDir,'NR01_DeltaTcomparison.R'))
   #source(paste0(flowDir,'DeltaT_CMP22comparison.R'))
-  source(paste0(flowDir,'hmp155_TAAT_tempComparison.R'))
+  #source(paste0(flowDir,'hmp155_TAAT_tempComparison.R'))
+  #source(paste0(flowDir,'PQS1_Top2TowerLevels_Comparison.R'))
+  #source(paste0(flowDir,'MetBuoyPressureComparison.R'))
   
-
+  # --- Indicate type of calibration uncertainty calculation. ---
+  # Use 'cnst' for U_CVALA1 as a constant uncertainty, 
+  # Use 'mult' for U_CVALA1 as a multiplier, 
+  # Use NA to not compute uncertainty
+  TypeUcrtMain=c('cnst','mult',NA)[2] 
+  TypeUcrtCoLoc=c('cnst','mult',NA)[2]
+  
+  # Add some description for plots
+  nameComp <- 'NR01 vs. DeltaT'
+  units <- 'W m-2'
+  
 } else if (evalType == "allLocs"){
   # Get the full list of available drift-corrected data in the S3 bucket for a DP ID and term combo (and optionally filtered for a single site)
   idDpMain="DP0.20053" # DP ID (you can find the DP ID with Blizzard L0 data viewer). e.g. DP0.20053
@@ -144,6 +156,9 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
       # Split the DP ID to get the site
       idDpSplt <- som::def.splt.neon.id.dp.full(idDp) 
       
+      # Record the site
+      data$site <- idDpSplt$site
+      
       # Get location information
       loc <- jsonify::from_json(paste0('https://data.neonscience.org/api/v0/locations/',idDpSplt$site))$data
       lat <- loc$locationDecimalLatitude
@@ -210,7 +225,7 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
     if(evalType == 'coLoc' && !is.null(dataMain) && !is.null(dataCoLoc)){
 
       # Restrict data to one hour around solar noon and clear-sky
-      if(FALSE){
+      if(TRUE){
 
         # Convert all times to local standard time (assume co-located at same site)
         tz <- DomnSite$TimeZone[DomnSite$SiteCode == idDpSplt$site]
@@ -226,7 +241,7 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
         dataCoLoc <- subset(dataCoLoc,subset=timeDataCoLoc$hour >= 10 & timeDataCoLoc$hour < 14)
         
         # Restrict to aligned daily peaks (within 10 min)
-        if(TRUE){
+        if(FALSE){
           if(nrow(dataMain) != nrow(dataCoLoc)){
             message('Need same data size for main and co-located sensors. Skipping...')
             next
@@ -280,8 +295,7 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
       }
       
       # Restrict data to midnight
-      if(TRUE){
-        stop()
+      if(FALSE){
         # Convert all times to local standard time (assume co-located at same site)
         tz <- DomnSite$TimeZone[DomnSite$SiteCode == idDpSplt$site]
         timeDataMain <- dataMain$time
@@ -305,6 +319,14 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
         dataCoLoc <- subset(dataCoLoc,subset=setKeep)
       }
       
+      if(FALSE){
+        # Subset to within 10 degrees
+        setKeep <- abs(dataMain$calibrated - dataCoLoc$calibrated) < 10
+        dataMain <- subset(dataMain,subset=setKeep)
+        dataCoLoc <- subset(dataCoLoc,subset=setKeep)
+      }
+      
+      
       if(nrow(dataMain) == 0 || nrow(dataCoLoc) == 0){
         message('Filtering removed all rows. Skipping...')
         next
@@ -313,7 +335,12 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
       # Assess how the spread of co-located sensor data changes with drift-correction applied
       # Negative values indicate a convergence of the co-located sensor values after drift correction
       # Positive values indicate a divergence of the co-located sensor values after drift correction
-      coLocConvergence[[idxRow]] <- def.drft.coLoc(dataMain,dataCoLoc)
+      coLocConvergence[[idxRow]] <- def.drft.coLoc(dataMain=dataMain,
+                                                   dataCoLoc=dataCoLoc,
+                                                   TypeUcrtMain=TypeUcrtMain,
+                                                   TypeUcrtCoLoc=TypeUcrtCoLoc
+      )
+      
       # --------------------------------------------------------------------------- #
 
     } # End co-located analysis
@@ -324,22 +351,229 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
 
 
 
-# ------------------ SYNTHESIZE CO-LOCATED ANALYSIS ------------------------- #
+## ------------------ SYNTHESIZE CO-LOCATED ANALYSIS ------------------------- #
 coLocConvergenceAll <- do.call(rbind,coLocConvergence)
-names(coLocConvergenceAll)[1] <- 'DaysSinceInstall'
-# Create a box plot timeseries
-titl=base::paste0('Convergence/divergence of co-located NR01 & DeltaT sensors after drift correction')
 
-plotBoxConv <- plotly::plot_ly(coLocConvergenceAll,x=~DaysSinceInstall,y=~mean,type='box') %>%
+# Filter crazy convergence metrics (usually resulting from bad drift coefficients)
+maxConv <- 100
+if(FALSE && nrow(coLocConvergenceAll) > 0){
+  coLocConvergenceAll <- coLocConvergenceAll[abs(coLocConvergenceAll$medConv) < maxConv,] # Filter crazy 
+}
+
+xMin <- 0
+xMax <- NA
+
+# Crunch some data to add to box plots below
+DSI <- coLocConvergenceAll$DaysSinceInstall
+DSIuniq <- setdiff(unique(DSI),NA)
+numSamp <- unlist(lapply(DSIuniq,FUN=function(idxDSI){sum(DSI==idxDSI,na.rm=TRUE)}))
+# Add the main and co-located uncertainties in quadrature, take the median, and expand to 2-sigma (95%) uncertainty 
+ucrtCal <- unlist(lapply(DSIuniq,FUN=function(idxDSI){
+  setDataIdx <- DSI==idxDSI
+  medUcrtCalIdx <- 2*median(
+                            sqrt(
+                                 coLocConvergenceAll$medUcrtCalMain[setDataIdx]^2 + 
+                                 coLocConvergenceAll$medUcrtCalCoLoc[setDataIdx]^2
+                                 ),
+                            na.rm=TRUE)
+  }))
+dataPlot <- data.frame(DSI=DSIuniq,numSamp=numSamp,ucrtCal=ucrtCal,idInst = '2-sigma uncertainty',stringsAsFactors=FALSE)
+
+# Overall 2-sigma calibration uncertainty (median of the full trace)
+ucrtCal <- median(ucrtCal)
+
+
+# How many co-located sensors showed a change in their difference above the 2-sigma uncertainty
+# We look for change rather than increase because sensors may actually drift towards each other
+idInstUniq <- setdiff(unique(coLocConvergenceAll$idInst),NA)
+numIdInst <- length(idInstUniq)
+dmmyChar <- rep(as.character(NA),numIdInst)
+dmmyNumc <- rep(as.numeric(NA),numIdInst)
+coLocSmmy <- data.frame(idInst=dmmyChar,maxDaySincInst=dmmyNumc,diffChng=dmmyNumc,stringsAsFactors = FALSE)
+for(idxIdInst in seq_len(numIdInst)){
+  setInst <- which(coLocConvergenceAll$idInst == idInstUniq[idxIdInst])
+  diffBgn <- coLocConvergenceAll$medDiffCal[setInst[1]]
+  diffEnd <- coLocConvergenceAll$medDiffCal[tail(setInst,1)]
+  diffChng <- diffEnd-diffBgn
+  coLocSmmy$idInst[idxIdInst] <- idInstUniq[idxIdInst]
+  coLocSmmy$maxDaySincInst[idxIdInst] <- coLocConvergenceAll$DaysSinceInstall[tail(setInst,1)]
+  coLocSmmy$diffChng[idxIdInst] <- diffChng
+  
+}
+# How many (and which) co-located sensor readings changed beyond the 2-sigma uncertainty?
+setDrft <- abs(coLocSmmy$diffChng) > ucrtCal
+print(paste0(sum(setDrft),' out of ',numIdInst,' co-located sensor comparisons (',round(sum(setDrft)/numIdInst*100,0),'%) suggest drift beyond the 2-sigma uncertainty of ', round(ucrtCal,2), ' ', units))
+print(paste0('They are: ',paste0(coLocSmmy$idInst[setDrft],collapse=',')))
+             
+# Create a box plot timeseries of co-located sensor difference (absolute) before drift correction
+coLocConvergenceAll$medAbsDiffCal <- abs(coLocConvergenceAll$medDiffCal)
+titl=base::paste0('Magnitude of sensor difference before drift correction')
+ylab <- paste0('Absolute sensor difference [', units,']')
+plotBoxDiffCal <- plotly::plot_ly(coLocConvergenceAll,x=~DaysSinceInstall,y=~medAbsDiffCal,type='box',name=ylab) %>%
+  plotly::add_lines(data=dataPlot,x=~DSI,y=~ucrtCal,name=paste0('Calibration uncertainty (2-sigma) [', units,']'),
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%
   plotly::layout(
-                 yaxis=list(title='Convergence (-) or Divergence (+) [W m-2]'),
-                 xaxis=list(title='Days Since Install',
-                            range = c(30,420)
-                            ),
-                 title=titl
+    yaxis=list(title=ylab),
+    xaxis=list(title='Days Since Install',
+               range = c(xMin,xMax)
+    ),
+    title=titl,
+    legend=FALSE
   )
-print(plotBoxConv)
+#print(plotBoxDiffCal)
 
+# Create a box plot timeseries of convergence or divergence after drift correction
+titl=base::paste0('Convergence/divergence of co-located sensors after drift correction')
+ylab <- paste0('Convergence (-) or Divergence (+) [',units,']')
+plotBoxConv <- plotly::plot_ly(coLocConvergenceAll,x=~DaysSinceInstall,y=~medConv,type='box',name=ylab) %>%
+  plotly::layout(
+                 yaxis=list(title=ylab),
+                 xaxis=list(title='Days Since Install',
+                            range = c(xMin,xMax)
+                            ),
+                 title=titl,
+                 legend=FALSE
+  )
+#print(plotBoxConv)
+
+# Show sample size at each x axis value
+titl <- 'Sample size'
+ylab <- paste0('Sample size')
+plotNumSamp <- plotly::plot_ly(dataPlot,x=~DSI,y=~numSamp,type='scatter',mode='markers',name=ylab) %>%
+  plotly::layout(
+    yaxis=list(title=ylab),
+    xaxis=list(title='Days Since Install',
+               range = c(xMin,xMax)
+    ),
+    title=nameComp,
+    legend=FALSE
+  )
+#print(plotNumSamp)
+
+plotAll <- plotly::subplot(plotBoxDiffCal,plotBoxConv,plotNumSamp,nrows=3,titleY=FALSE,shareX=TRUE)
+print(plotAll)
+
+
+
+
+
+# Show a scatter plot of Days since install vs. sensor difference. This will show
+# individual sensor comparison traces over time
+ylab <- paste0('Sensor difference [', units,']')
+plot <- plotly::plot_ly(data=coLocConvergenceAll,x=~DaysSinceInstall,y=~medDiffCal,color=~idInst,type='scatter',mode='lines') %>%
+  plotly::add_lines(data=dataPlot,
+                    x=~DSI,
+                    y=~ucrtCal,
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%
+  plotly::add_lines(data=dataPlot,
+                    x=~DSI,
+                    y=~ucrtCal*-1,
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%  plotly::layout(
+    yaxis=list(title=ylab),
+    xaxis=list(title='Days Since Install'
+    ),
+    title=nameComp,
+    legend=FALSE
+  )
+print(plot)
+
+
+# Show a scatter plot of abs sensor difference vs. convergence of colocated sensors. This will show
+# the degree that sensor differences are attributable to drift (and thus correctable)
+xlab <- paste0('Absolute sensor difference [', units,']')
+ylab <- paste0('Convergence (-) or Divergence (+) [',units,']')
+plot <- plotly::plot_ly(data=coLocConvergenceAll,x=~medAbsDiffCal,y=~medConv,color=~idInst,type='scatter',mode='lines') %>%
+  plotly::add_lines(data=data.frame(idInst = '2-sigma uncertainty',
+                                    medAbsDiffCal=c(0,max(c(coLocConvergenceAll$medAbsDiffCal,ucrtCal),na.rm=TRUE)),
+                                    ucrtCal=rep(ucrtCal,2),
+                                    stringsAsFactors=FALSE),
+                    x=~medAbsDiffCal,
+                    y=~ucrtCal,
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%
+  plotly::add_lines(data=data.frame(idInst = '2-sigma uncertainty',
+                                    medAbsDiffCal=c(0,max(c(coLocConvergenceAll$medAbsDiffCal,ucrtCal),na.rm=TRUE)),
+                                    ucrtCal=rep(-1*ucrtCal,2),
+                                    stringsAsFactors=FALSE),
+                    x=~medAbsDiffCal,
+                    y=~ucrtCal,
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%
+  plotly::add_lines(data=data.frame(idInst = '2-sigma uncertainty',
+                                    medConv=c(min(c(coLocConvergenceAll$medConv,-1*ucrtCal),na.rm=TRUE),max(c(coLocConvergenceAll$medConv,ucrtCal),na.rm=TRUE)),
+                                    ucrtCal=rep(ucrtCal,2),
+                                    stringsAsFactors=FALSE),
+                    x=~ucrtCal,
+                    y=~medConv,
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%
+  plotly::layout(
+    yaxis=list(title=ylab),
+    xaxis=list(title=xlab),
+    title=nameComp,
+    legend=FALSE
+  )
+print(plot)
+
+if (FALSE){
+  # Show a scatter plot of (signed) sensor difference vs. convergence of colocated sensors. This will show
+  # the degree that sensor differences are attributable to drift (and thus correctable)
+  xlab <- paste0('Sensor difference [', units,']')
+  ylab <- paste0('Convergence (-) or Divergence (+) [',units,']')
+  plot <- plotly::plot_ly(data=coLocConvergenceAll,x=~medDiffCal,y=~medConv,color=~idInst,type='scatter',mode='lines') %>%
+    plotly::add_lines(data=data.frame(idInst = '2-sigma uncertainty',
+                                      medDiffCal=c(min(coLocConvergenceAll$medDiffCal,na.rm=TRUE),max(coLocConvergenceAll$medDiffCal,na.rm=TRUE)),
+                                      ucrtCal=rep(ucrtCal,2),
+                                      stringsAsFactors=FALSE),
+                      x=~medDiffCal,
+                      y=~ucrtCal,
+                      line = list(dash='dash',
+                                  color = 'rgb(0, 0, 0)',
+                                  width = 2)) %>%
+    plotly::add_lines(data=data.frame(idInst = '2-sigma uncertainty',
+                                      medDiffCal=c(min(coLocConvergenceAll$medDiffCal),max(coLocConvergenceAll$medDiffCal,na.rm=TRUE)),
+                                      ucrtCal=rep(-1*ucrtCal,2),
+                                      stringsAsFactors=FALSE),
+                      x=~medDiffCal,
+                      y=~ucrtCal,
+                      line = list(dash='dash',
+                                  color = 'rgb(0, 0, 0)',
+                                  width = 2)) %>%
+    plotly::add_lines(data=data.frame(idInst = '2-sigma uncertainty',
+                                      medConv=c(min(coLocConvergenceAll$medConv,na.rm=TRUE),max(coLocConvergenceAll$medConv,na.rm=TRUE)),
+                                      ucrtCal=rep(ucrtCal,2),
+                                      stringsAsFactors=FALSE),
+                      x=~ucrtCal,
+                      y=~medConv,
+                      line = list(dash='dash',
+                                  color = 'rgb(0, 0, 0)',
+                                  width = 2)) %>%
+      plotly::add_lines(data=data.frame(idInst = '2-sigma uncertainty',
+                                        medConv=c(min(coLocConvergenceAll$medConv,na.rm=TRUE),max(coLocConvergenceAll$medConv,na.rm=TRUE)),
+                                        ucrtCal=rep(-1*ucrtCal,2),
+                                        stringsAsFactors=FALSE),
+                        x=~ucrtCal,
+                        y=~medConv,
+                        line = list(dash='dash',
+                                    color = 'rgb(0, 0, 0)',
+                                    width = 2)) %>%
+      plotly::layout(
+      yaxis=list(title=ylab),
+      xaxis=list(title=xlab),
+      title=nameComp,
+      legend=FALSE
+    )
+  print(plot)
+}
 # --------------------------------------------------------------------------- #
   
 

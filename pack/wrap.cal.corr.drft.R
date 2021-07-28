@@ -49,6 +49,7 @@ wrap.cal.corr.drft <- function(idDp,
   data$calibrated <- NA
   data$driftCorrected <- NA
   data$drftCorrFlag <- FALSE
+  data$assetUID <- NA
   data$instDate <- as.POSIXct(NA,tz='GMT')
   data$U_CVALA1 <- NA
   data$U_CVALE5 <- NA
@@ -112,6 +113,9 @@ wrap.cal.corr.drft <- function(idDp,
       data$calibrated[setData] <- data[setData,dataCol]
     } 
     
+    # Add asset ID to the dataset
+    data$assetUID[setData] <- assetHist$assetUid[idxInst]
+      
     # Add asset install time (numeric format) to the dataset
     data$instDate[setData] <- assetHist$installDate[idxInst]
     
@@ -159,6 +163,7 @@ wrap.cal.corr.drft <- function(idDp,
     # Record drift uncertainties
     data$U_CVALE5[setData] <- coefDrftE5
     data$U_CVALE9[setData] <- coefDrftE9
+    
   }
   
   # Ensure time and install date in GMT

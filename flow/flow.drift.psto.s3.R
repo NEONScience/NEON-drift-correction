@@ -1,4 +1,4 @@
-#' @title Flow script to grab presto data and save to s3 bucket
+#' @title Flow script to grab presto data and save to s3 bucket (if not already there), and perform drift correction
 #' @author Guy Litt, Cove Sturtevant
 #' @description Given a list of full DP0 NEON DP IDs for (dlType="cstm"),
 #' download data from presto and place in s3 dev-is-drift bucket
@@ -51,174 +51,180 @@ if(dlType == "cstm"){
   # Note, not all may be active or real, the code below will ignore any non-existent locs
   # To use this section, you MUST be running the code from den-devissom-1
   Para <- list(
-    # list(
-    #   idDpMain="DP0.20053.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01325", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20016.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01378", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00098.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01357", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal= NA # The function from NEONprocIS.cal to apply the calibration. NA for no calibration conversion.
-    # ),
-    # list(
-    #   idDpMain="DP0.00098.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01309", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal= NA # The function from NEONprocIS.cal to apply the calibration. NA for no calibration conversion.
-    # ),
-    # list(
-    #   idDpMain="DP0.00003.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01325", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00004.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01311", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
+    list(
+      idDpMain="DP0.20053.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01325", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20016.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01378", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00098.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01357", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal= NA # The function from NEONprocIS.cal to apply the calibration. NA for no calibration conversion.
+    ),
+    list(
+      idDpMain="DP0.00098.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01309", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal= NA # The function from NEONprocIS.cal to apply the calibration. NA for no calibration conversion.
+    ),
+    list(
+      idDpMain="DP0.00003.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01325", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00004.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01311", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20004.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01311", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
     list(
       idDpMain="DP0.00022.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
       idTerm="01324", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
       site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
       funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00023.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01316", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00023.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01315", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00024.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00024.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01321", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00014.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01332", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00014.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01333", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.00066.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01329", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20042.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20261.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20261.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="01321", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02887", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02888", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02889", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02890", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02891", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02892", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02893", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02894", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02895", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="02896", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
+    ),
+    list(
+      idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
+      idTerm="05516", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
+      site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
+      funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
     )
-    # list(
-    #   idDpMain="DP0.00023.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01316", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00023.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01315", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00024.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00024.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01321", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00014.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01332", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00014.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01333", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.00066.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01329", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20042.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20261.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01320", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20261.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="01321", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02887", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02888", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02889", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02890", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02891", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02892", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02893", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02894", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02895", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="02896", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # ),
-    # list(
-    #   idDpMain="DP0.20264.001", # DP ID (you can find the DP ID with Blizzard L0 data viewer)
-    #   idTerm="05516", # Term ID (you can find the stream ID with Blizzard L0 data viewer)
-    #   site=NULL, # NULL to retrieve all sites. Otherwise, a character vector of NEON site codes, e.g. c('CPER','BART')
-    #   funcCal='def.cal.conv.poly' # The function from NEONprocIS.cal to apply the calibration
-    # )
   )
 
   idDps <- c() 
