@@ -15,6 +15,8 @@ def.drft.coLoc <- function(dataMain,
                     medCalCoLoc=dmmy,
                     meanDiffCal=dmmy,
                     medDiffCal=dmmy,
+                    medCorrMain=dmmy,
+                    medCorrCoLoc=dmmy,
                     meanDiffCorr=dmmy,
                     medDiffCorr=dmmy,
                     meanConv=dmmy,
@@ -25,6 +27,8 @@ def.drft.coLoc <- function(dataMain,
                     nConv=dmmy,
                     medUcrtCalMain=dmmy,
                     medUcrtCalCoLoc=dmmy,
+                    medUcrtDrftCorrMain=dmmy,
+                    medUcrtDrftCorrCoLoc=dmmy,
                     stringsAsFactors=FALSE)
   
   # Align the timeseries
@@ -86,20 +90,26 @@ def.drft.coLoc <- function(dataMain,
       dataBothIdx$diffCorr <- dataBothIdx$driftCorrected.y - dataBothIdx$driftCorrected.x
       dataBothIdx$diffChng <- abs(dataBothIdx$diffCorr)-abs(dataBothIdx$diffCal) # Negative is closer to zero, positive is further away from zero
       
-      # Compute uncertainty
+      # Compute uncertainties
       if(TypeUcrtMain=='cnst'){
         dataBothIdx$ucrtCalMain <- dataBothIdx$U_CVALA1.x 
+        dataBothIdx$ucrtDrftCorrMain <- dataBothIdx$U_CVALE9.x 
       } else if (TypeUcrtMain=='mult'){
         dataBothIdx$ucrtCalMain <- dataBothIdx$U_CVALA1.x * dataBothIdx$driftCorrected.x
+        dataBothIdx$ucrtDrftCorrMain <- dataBothIdx$U_CVALE9.x * dataBothIdx$driftCorrected.x
       } else {
         dataBothIdx$ucrtCalMain <- NA
+        dataBothIdx$ucrtDrftCorrMain <- NA
       }
       if(TypeUcrtCoLoc=='cnst'){
         dataBothIdx$ucrtCalCoLoc <- dataBothIdx$U_CVALA1.y 
+        dataBothIdx$ucrtDrftCorrCoLoc <- dataBothIdx$U_CVALE9.y 
       } else if (TypeUcrtCoLoc=='mult'){
         dataBothIdx$ucrtCalCoLoc <- dataBothIdx$U_CVALA1.y * dataBothIdx$driftCorrected.y
+        dataBothIdx$ucrtDrftCorrCoLoc <- dataBothIdx$U_CVALE9.y * dataBothIdx$driftCorrected.y
       } else {
         dataBothIdx$ucrtCalCoLoc <- NA
+        dataBothIdx$ucrtDrftCorrCoLoc <- NA
       }
       
       
@@ -112,6 +122,8 @@ def.drft.coLoc <- function(dataMain,
                            medCalCoLoc=median(dataBothIdx$calibrated.y,na.rm=TRUE),
                            meanDiffCal=mean(dataBothIdx$diffCal,na.rm=TRUE),
                            medDiffCal=median(dataBothIdx$diffCal,na.rm=TRUE),
+                           medCorrMain=median(dataBothIdx$driftCorrected.x,na.rm=TRUE),
+                           medCorrCoLoc=median(dataBothIdx$driftCorrected.y,na.rm=TRUE),
                            meanDiffCorr=mean(dataBothIdx$diffCorr,na.rm=TRUE),
                            medDiffCorr=median(dataBothIdx$diffCorr,na.rm=TRUE),
                            meanConv=mean(dataBothIdx$diffChng,na.rm=TRUE),
@@ -122,6 +134,8 @@ def.drft.coLoc <- function(dataMain,
                            nConv=sum(!is.na(dataBothIdx$diffChng)),
                            medUcrtCalMain=median(dataBothIdx$ucrtCalMain,na.rm=TRUE),
                            medUcrtCalCoLoc=median(dataBothIdx$ucrtCalCoLoc,na.rm=TRUE),
+                           medUcrtDrftCorrMain=median(dataBothIdx$ucrtDrftCorrMain,na.rm=TRUE),
+                           medUcrtDrftCorrCoLoc=median(dataBothIdx$ucrtDrftCorrCoLoc,na.rm=TRUE),
                            stringsAsFactors=FALSE)
       rpt <- rbind(rpt,rptIdx)
     }

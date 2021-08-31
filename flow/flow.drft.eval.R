@@ -40,12 +40,14 @@ if(evalType == "cstm"){
   # !!!The parameter file from S3 needs to be re-written in the format of idDps given below (in this if statement)
   # testPara <- aws.s3::s3readRDS(object = "params/testParaCoLoc.rds",bucket = bucket)
   # idDps <- base::c(testPara$idDp, testPara$idDpCoLoc) %>%  base::gsub(pattern = "[\"]", replacement = "")
-  #source(paste0(flowDir,'NR01_CMP22comparison.R'))
-  source(paste0(flowDir,'NR01_DeltaTcomparison.R'))
-  #source(paste0(flowDir,'DeltaT_CMP22comparison.R'))
-  #source(paste0(flowDir,'hmp155_TAAT_tempComparison.R'))
-  #source(paste0(flowDir,'PQS1_Top2TowerLevels_Comparison.R'))
-  #source(paste0(flowDir,'MetBuoyPressureComparison.R'))
+  #fileParaCoLoc <- 'NR01_CMP22comparison.R'
+  #fileParaCoLoc <- 'NR01_DeltaTcomparison.R'
+  #fileParaCoLoc <- 'DeltaT_CMP22comparison.R'
+  #fileParaCoLoc <- 'hmp155_TAAT_tempComparison.R'
+  fileParaCoLoc <- 'PQS1_Top2TowerLevels_Comparison.R'
+  #fileParaCoLoc <- 'MetBuoyPressureComparison.R'
+  
+  source(paste0(flowDir,fileParaCoLoc))
   
   # --- Indicate type of calibration uncertainty calculation. ---
   # Use 'cnst' for U_CVALA1 as a constant uncertainty, 
@@ -55,8 +57,8 @@ if(evalType == "cstm"){
   TypeUcrtCoLoc=c('cnst','mult',NA)[2]
   
   # Add some description for plots
-  nameComp <- 'NR01 vs. DeltaT'
-  units <- 'W m-2'
+  nameComp <- fileParaCoLoc
+  units <- 'umol quanta m-2 s-1'
   
 } else if (evalType == "allLocs"){
   # Get the full list of available drift-corrected data in the S3 bucket for a DP ID and term combo (and optionally filtered for a single site)
@@ -319,8 +321,8 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
         dataCoLoc <- subset(dataCoLoc,subset=setKeep)
       }
       
+      # Subset calibrated to within 10 degrees
       if(FALSE){
-        # Subset to within 10 degrees
         setKeep <- abs(dataMain$calibrated - dataCoLoc$calibrated) < 10
         dataMain <- subset(dataMain,subset=setKeep)
         dataCoLoc <- subset(dataCoLoc,subset=setKeep)
@@ -355,9 +357,13 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
 coLocConvergenceAll <- do.call(rbind,coLocConvergence)
 
 # Filter crazy convergence metrics (usually resulting from bad drift coefficients)
-maxConv <- 100
+maxConv <- 200
+goodCorr <- abs(coLocConvergenceAll$medConv) < maxConv
+badCorr <- abs(coLocConvergenceAll$medConv) >= maxConv
+coLocConvergenceGood <- coLocConvergenceAll[goodCorr,]
+coLocConvergenceBad <- coLocConvergenceAll[badCorr,]
 if(FALSE && nrow(coLocConvergenceAll) > 0){
-  coLocConvergenceAll <- coLocConvergenceAll[abs(coLocConvergenceAll$medConv) < maxConv,] # Filter crazy 
+  coLocConvergenceAll <- coLocConvergenceGood # Filter crazy 
 }
 
 xMin <- 0
