@@ -11,7 +11,7 @@
 # 
 # Changelog / Contributions
 #   2021-04-29 Guy Litt, originally created
-
+#   2021-05-13 fix bug in difftime calc to ensure units in mins
 library(aws.s3)
 library(tidyverse)
 library(stringr)
@@ -25,9 +25,11 @@ bucket <- "dev-is-drift"
 drftCol <- "driftCorrected"
 timeCol <- "time"
 maxGapMins <- 60 # The max time gap in mins allowed between sensor swaps
+srchTimeMins <- 60 # During a sensor swap, search +/- this many mins for stretches of NA that may actually better represent a swap gap
 otlrDiffThr <- 10 # The threshold for outlier exclusion in calibrated units (only if manlOtlrThr=TRUE)
 manlOtlrThr <- FALSE # Should a manual outlier exclusion be performed? Set to FALSE for auto outlier removal
 dpIdz <- c("DP0.00003","DP0.00004","DP0.00022","DP0.00024","DP0.00098","DP0.20016", "DP0.20053")
+# dpIdz <- "DP0.00004"
 # =========================================================================== #
 #                        SET S3 ENVIRONMENT/ACCESS
 # =========================================================================== #
@@ -92,13 +94,8 @@ for(dpId in base::names(sitzDpz)){
         next()
       }
       
-      subDtDrft <- dtDrft %>% base::subset(exst == 1)
-      
-      
-      
-  
       # Identify the gaps between sensor swaps
-      swapGaps <- def.id.swap.gap(subDtDrft)
+      swapGaps <- def.id.swap.gap(dtDrft, dataCol = "driftCorrected", srchTimeMins = srchTimeMins )
       
       
       swapGaps$diffCalb <- NA
@@ -133,15 +130,31 @@ for(dpId in base::names(sitzDpz)){
         
         subData <- base::lapply(1:length(idxsSubBgn), function(i) dtDrft[idxsSubBgn[i]:idxsSubEnd[i],])
         
+        if(dpId == "DP0.00004"){
+          cstmName <- "Barometric Pressure [kPa]"
+        } else if (dpId == "DP0.20053"){
+          cstName <- "Water Temperature [C]"
+        } else {
+          cstmName <- dpId
+        }
+        
         for (idx in 1:length(subData)){
           
           subMlt <- subData[[idx]] %>% data.table::melt.data.table(id.vars = c("time"), measure.vars = c("calibrated","driftCorrected"))
-          
-          
+          # 
+          # subMlt$variable[subMlt$variable == "driftCorrected"] == "Drift_corrected"
+          # subMlt$variable[subMlt$variable == "calibrated"] == "Calibrated"
           plotTsGap <- subMlt %>% ggplot2::ggplot(aes(x=time, y=value, color = variable)) + 
-            geom_point() +
-            ggtitle(paste(site,dpId,horVer,"sensor swap readings")) +
-            ylab(paste0("calibrated and drift-corrected ", dpId))
+            geom_point(alpha = 0.5, aes(shape = variable), size = 8, stroke = 2) +
+            scale_shape_manual(values = c(1,2)) +
+            ylab(paste0("")) +
+            xlab(NULL) +
+            theme(axis.text.x = element_text(size = 18)) +
+            theme(axis.text.y = element_text(size = 24)) +
+            theme(axis.title=element_text(size = 28)) +
+            theme(legend.title = element_blank(),
+                  legend.text = element_text(size=18),
+                  legend.position = 'top') #change legend text font size
           
           plotTsGapLs[[paste0(site,horVer,"_",base::as.Date(subData[[idx]]$time[1]))]] <- plotTsGap
         }
@@ -161,6 +174,11 @@ for(dpId in base::names(sitzDpz)){
     next()
   }
   
+  # Subset swapDt to only periods within maxGapMins
+  
+  swapDt <- swapDt[swapDt$diffMins < maxGapMins]
+  
+  
   # ======================================
   # Remove outliers:
   if(!manlOtlrThr){
@@ -173,19 +191,42 @@ for(dpId in base::names(sitzDpz)){
   swapDtRmOtlr <- swapDtRmOtlr %>% subset(base::abs(diffDrft) < otlrDiffThr)
   
   
+  swapDtRmOtlrRenm <- swapDtRmOtlr
+  names(swapDtRmOtlrRenm)
+  swapDtRmOtlrRenm <- swapDtRmOtlrRenm %>% rename("Calibrated" = diffCalb, "Drift_corrected" = diffDrft)
+  meltSwapRenm <- swapDtRmOtlrRenm %>% data.table::melt.data.table(id.vars = c("instDate","site"), measure.vars = c("Calibrated","Drift_corrected"))
   meltSwap <- swapDtRmOtlr %>% data.table::melt.data.table(id.vars = c("instDate","site"), measure.vars = c("diffCalb","diffDrft")) 
   
-  plotdiffCalbVsDrft <- meltSwap %>% 
-    ggplot(aes(x = variable, y = value, group = variable)) +
-    geom_boxplot() +
-    geom_line(aes(group=instDate), position = position_dodge(0.3)) +
-    geom_point(aes(fill=variable,group=instDate),size=2,shape=21, position = position_dodge(0.3)) +
-    theme(legend.position = "none") +
-    ggtitle(paste0("Changes in data during sensor swaps performed within ", maxGapMins, " mins: ", dpId)) +
-    ylab(paste0("Post-swap - Pre-swap reading, ", dpId)) + 
-    theme(axis.text.x = element_text(size = 14)) +
-    theme(axis.text.y = element_text(size = 14)) 
   
+  
+  if(dpId == "DP0.00004"){
+      yLab <- paste0("Post-swap baro P - Pre-swap baro P [kPa]")
+  } else if (dpId == "DP0.20053"){
+      yLab <- "Post-swap temp - Pre-swap temp [C]"
+  } else if (dpId == "DP0.20016"){
+      yLab <- paste0("Post-swap - Pre-swap water level [m]")
+  } else {
+    yLab <- paste0("Post-swap - Pre-swap reading, ", dpId)
+    
+  }
+  
+  
+plotdiffCalbVsDrft <- meltSwapRenm %>% 
+  ggplot(aes(x = variable, y = value, group = variable)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_line(aes(group=instDate), position = position_dodge(0.3)) +
+  geom_point(aes(fill=variable,group=instDate),size=8,shape=21, position = position_dodge(0.3), alpha = 0.5) +
+  scale_shape_manual(values = c(1,2)) +
+  theme(legend.position = "none") +
+  xlab(NULL) +
+  ylab(yLab) + 
+  ggtitle(paste0("n = ", dim(swapDtRmOtlr)[1])) +
+  theme(axis.text.x = element_text(size = 28)) +
+  theme(axis.text.y = element_text(size = 24)) +
+  theme(axis.title=element_text(size = 28),
+        plot.title = element_text(hjust = 0.5, size =20)
+                      ) 
+
   allPlotGapDiff[[dpId]] <- plotdiffCalbVsDrft
   
   # write plots to bucket
