@@ -44,8 +44,10 @@ if(evalType == "cstm"){
   #fileParaCoLoc <- 'NR01_DeltaTcomparison.R'
   #fileParaCoLoc <- 'DeltaT_CMP22comparison.R'
   #fileParaCoLoc <- 'hmp155_TAAT_tempComparison.R'
-  fileParaCoLoc <- 'PQS1_Top2TowerLevels_Comparison.R'
-  #fileParaCoLoc <- 'MetBuoyPressureComparison.R'
+  #fileParaCoLoc <- 'PQS1_Top2TowerLevels_Comparison.R'
+  fileParaCoLoc <- 'MetBuoyPressureComparison.R'
+  #fileParaCoLoc <- 'PRT_TROLLtemp_comparison.R'
+  
   
   source(paste0(flowDir,fileParaCoLoc))
   
@@ -53,12 +55,18 @@ if(evalType == "cstm"){
   # Use 'cnst' for U_CVALA1 as a constant uncertainty, 
   # Use 'mult' for U_CVALA1 as a multiplier, 
   # Use NA to not compute uncertainty
-  TypeUcrtMain=c('cnst','mult',NA)[2] 
-  TypeUcrtCoLoc=c('cnst','mult',NA)[2]
+  TypeUcrtMain=c('cnst','mult',NA)[1] 
+  TypeUcrtCoLoc=c('cnst','mult',NA)[1]
   
   # Add some description for plots
   nameComp <- fileParaCoLoc
-  units <- 'umol quanta m-2 s-1'
+  units <- 'kPa'
+  
+  RstrSolNoonClrSky <- FALSE # Restrict to 1 hour around solar noon and clear sky conditions?
+  RstrMidn <- TRUE # Restrict to midnight to 2 am local time?
+  RstrCalDiff <- FALSE # Restrict to calibrated difference of less than a certain amount?
+  CalDiffMax <- 10 # Max difference in calibrated values between co-located sensors (applies only if RstrCalDiff = TRUE)
+  
   
 } else if (evalType == "allLocs"){
   # Get the full list of available drift-corrected data in the S3 bucket for a DP ID and term combo (and optionally filtered for a single site)
@@ -227,7 +235,7 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
     if(evalType == 'coLoc' && !is.null(dataMain) && !is.null(dataCoLoc)){
 
       # Restrict data to one hour around solar noon and clear-sky
-      if(TRUE){
+      if(RstrSolNoonClrSky){
 
         # Convert all times to local standard time (assume co-located at same site)
         tz <- DomnSite$TimeZone[DomnSite$SiteCode == idDpSplt$site]
@@ -297,7 +305,7 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
       }
       
       # Restrict data to midnight
-      if(FALSE){
+      if(RstrMidn){
         # Convert all times to local standard time (assume co-located at same site)
         tz <- DomnSite$TimeZone[DomnSite$SiteCode == idDpSplt$site]
         timeDataMain <- dataMain$time
@@ -322,8 +330,8 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
       }
       
       # Subset calibrated to within 10 degrees
-      if(FALSE){
-        setKeep <- abs(dataMain$calibrated - dataCoLoc$calibrated) < 10
+      if(RstrCalDiff){
+        setKeep <- abs(dataMain$calibrated - dataCoLoc$calibrated) < CalDiffMax
         dataMain <- subset(dataMain,subset=setKeep)
         dataCoLoc <- subset(dataCoLoc,subset=setKeep)
       }
@@ -362,7 +370,7 @@ goodCorr <- abs(coLocConvergenceAll$medConv) < maxConv
 badCorr <- abs(coLocConvergenceAll$medConv) >= maxConv
 coLocConvergenceGood <- coLocConvergenceAll[goodCorr,]
 coLocConvergenceBad <- coLocConvergenceAll[badCorr,]
-if(FALSE && nrow(coLocConvergenceAll) > 0){
+if(TRUE && nrow(coLocConvergenceAll) > 0){
   coLocConvergenceAll <- coLocConvergenceGood # Filter crazy 
 }
 
@@ -383,7 +391,7 @@ ucrtCal <- unlist(lapply(DSIuniq,FUN=function(idxDSI){
                                  ),
                             na.rm=TRUE)
   }))
-dataPlot <- data.frame(DSI=DSIuniq,numSamp=numSamp,ucrtCal=ucrtCal,idInst = '2-sigma uncertainty',stringsAsFactors=FALSE)
+dataPlot <- data.frame(DSI=DSIuniq,numSamp=numSamp,ucrtCal=ucrtCal,ucrtCalNeg=-1*ucrtCal,idInst = '2-sigma uncertainty',stringsAsFactors=FALSE)
 
 # Overall 2-sigma calibration uncertainty (median of the full trace)
 ucrtCal <- median(ucrtCal)
@@ -434,6 +442,14 @@ plotBoxDiffCal <- plotly::plot_ly(coLocConvergenceAll,x=~DaysSinceInstall,y=~med
 titl=base::paste0('Convergence/divergence of co-located sensors after drift correction')
 ylab <- paste0('Convergence (-) or Divergence (+) [',units,']')
 plotBoxConv <- plotly::plot_ly(coLocConvergenceAll,x=~DaysSinceInstall,y=~medConv,type='box',name=ylab) %>%
+  plotly::add_lines(data=dataPlot,x=~DSI,y=~ucrtCal,name=paste0('Calibration uncertainty (2-sigma) [', units,']'),
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%
+  plotly::add_lines(data=dataPlot,x=~DSI,y=~ucrtCalNeg,name=paste0('Calibration uncertainty (2-sigma) [', units,']'),
+                    line = list(dash='dash',
+                                color = 'rgb(0, 0, 0)',
+                                width = 2)) %>%
   plotly::layout(
                  yaxis=list(title=ylab),
                  xaxis=list(title='Days Since Install',
