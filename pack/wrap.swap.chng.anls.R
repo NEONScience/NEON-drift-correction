@@ -34,7 +34,7 @@ library(dplyr)
 
 # TODO add term # to consideration
 
-wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60, timeCol="time", manlOtlrThr = FALSE, oltrDiffThr = 10){
+wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60, timeCol="time", manlOtlrThr = FALSE, otlrDiffThr = 10){
   if(!"character" %in% base::class(idDpsVec)){
     stop("idDpsVec should be character class.")
   }
