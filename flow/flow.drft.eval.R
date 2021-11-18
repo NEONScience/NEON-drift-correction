@@ -43,9 +43,10 @@ if(evalType == "cstm"){
   #fileParaCoLoc <- 'NR01_CMP22comparison.R'
   #fileParaCoLoc <- 'NR01_DeltaTcomparison.R'
   #fileParaCoLoc <- 'DeltaT_CMP22comparison.R'
-  #fileParaCoLoc <- 'hmp155_TAAT_tempComparison.R'
   #fileParaCoLoc <- 'PQS1_Top2TowerLevels_Comparison.R'
-  fileParaCoLoc <- 'MetBuoyPressureComparison.R'
+  fileParaCoLoc <- 'TAAT_PRTtempComparison.R'
+  #fileParaCoLoc <- 'hmp155_TAAT_tempComparison.R'
+  #fileParaCoLoc <- 'MetBuoyPressureComparison.R'
   #fileParaCoLoc <- 'PRT_TROLLtemp_comparison.R'
   
   
@@ -60,12 +61,15 @@ if(evalType == "cstm"){
   
   # Add some description for plots
   nameComp <- fileParaCoLoc
-  units <- 'kPa'
+  units <- 'deg C'
   
   RstrSolNoonClrSky <- FALSE # Restrict to 1 hour around solar noon and clear sky conditions?
-  RstrMidn <- TRUE # Restrict to midnight to 2 am local time?
+  RstrMidn <- FALSE # Restrict to midnight to 2 am local time?
   RstrCalDiff <- FALSE # Restrict to calibrated difference of less than a certain amount?
-  CalDiffMax <- 10 # Max difference in calibrated values between co-located sensors (applies only if RstrCalDiff = TRUE)
+  CalDiffMax <- 500 # Max difference in calibrated values between co-located sensors (applies only if RstrCalDiff = TRUE)
+  
+  # Filter crazy convergence metrics (usually resulting from bad drift coefficients)
+  maxConvAbs <- 10
   
   
 } else if (evalType == "allLocs"){
@@ -365,9 +369,8 @@ if (evalType %in% c('cstm', 'coLoc', 'allLocs')){
 coLocConvergenceAll <- do.call(rbind,coLocConvergence)
 
 # Filter crazy convergence metrics (usually resulting from bad drift coefficients)
-maxConv <- 200
-goodCorr <- abs(coLocConvergenceAll$medConv) < maxConv
-badCorr <- abs(coLocConvergenceAll$medConv) >= maxConv
+goodCorr <- abs(coLocConvergenceAll$medConv) < maxConvAbs
+badCorr <- abs(coLocConvergenceAll$medConv) >= maxConvAbs
 coLocConvergenceGood <- coLocConvergenceAll[goodCorr,]
 coLocConvergenceBad <- coLocConvergenceAll[badCorr,]
 if(TRUE && nrow(coLocConvergenceAll) > 0){
@@ -403,22 +406,33 @@ idInstUniq <- setdiff(unique(coLocConvergenceAll$idInst),NA)
 numIdInst <- length(idInstUniq)
 dmmyChar <- rep(as.character(NA),numIdInst)
 dmmyNumc <- rep(as.numeric(NA),numIdInst)
-coLocSmmy <- data.frame(idInst=dmmyChar,maxDaySincInst=dmmyNumc,diffChng=dmmyNumc,stringsAsFactors = FALSE)
+coLocSmmy <- data.frame(idInst=dmmyChar,maxDaySincInst=dmmyNumc,diffChng=dmmyNumc,convMin=dmmyNumc,convMax=dmmyNumc,stringsAsFactors = FALSE)
 for(idxIdInst in seq_len(numIdInst)){
   setInst <- which(coLocConvergenceAll$idInst == idInstUniq[idxIdInst])
-  diffBgn <- coLocConvergenceAll$medDiffCal[setInst[1]]
-  diffEnd <- coLocConvergenceAll$medDiffCal[tail(setInst,1)]
-  diffChng <- diffEnd-diffBgn
+  diffMin <- min(coLocConvergenceAll$medDiffCal[setInst],na.rm=TRUE)
+  diffMax <- max(coLocConvergenceAll$medDiffCal[setInst],na.rm=TRUE)
+  diffChng <- diffMax-diffMin
   coLocSmmy$idInst[idxIdInst] <- idInstUniq[idxIdInst]
   coLocSmmy$maxDaySincInst[idxIdInst] <- coLocConvergenceAll$DaysSinceInstall[tail(setInst,1)]
   coLocSmmy$diffChng[idxIdInst] <- diffChng
-  
+  convMin <- min(coLocConvergenceAll$medConv[setInst],na.rm=TRUE)
+  convMax <- max(coLocConvergenceAll$medConv[setInst],na.rm=TRUE)
+  coLocSmmy$convMin[idxIdInst] <- convMin
+  coLocSmmy$convMax[idxIdInst] <- convMax
 }
 # How many (and which) co-located sensor readings changed beyond the 2-sigma uncertainty?
-setDrft <- abs(coLocSmmy$diffChng) > ucrtCal
+setDrft <- abs(coLocSmmy$diffChng) > ucrtCal # (+-) 2-sigma uncert
 print(paste0(sum(setDrft),' out of ',numIdInst,' co-located sensor comparisons (',round(sum(setDrft)/numIdInst*100,0),'%) suggest drift beyond the 2-sigma uncertainty of ', round(ucrtCal,2), ' ', units))
 print(paste0('They are: ',paste0(coLocSmmy$idInst[setDrft],collapse=',')))
-             
+
+# How many co-located sensor comparisons converged or diverged beyond the 2-sigma measurement uncertainty
+setConv <- coLocSmmy$convMin < -1*ucrtCal
+setDivg <- coLocSmmy$convMax > ucrtCal
+print(paste0(sum(setConv),' out of ',numIdInst,' co-located sensor comparisons (',round(sum(setConv)/numIdInst*100,0),'%) converged after drift correction beyond the 2-sigma uncertainty of ', round(ucrtCal,2), ' ', units))
+print(paste0('They are: ',paste0(coLocSmmy$idInst[setConv],collapse=',')))
+print(paste0(sum(setDivg),' out of ',numIdInst,' co-located sensor comparisons (',round(sum(setDivg)/numIdInst*100,0),'%) diverged after drift correction beyond the 2-sigma uncertainty of ', round(ucrtCal,2), ' ', units))
+print(paste0('They are: ',paste0(coLocSmmy$idInst[setDivg],collapse=',')))
+
 # Create a box plot timeseries of co-located sensor difference (absolute) before drift correction
 coLocConvergenceAll$medAbsDiffCal <- abs(coLocConvergenceAll$medDiffCal)
 titl=base::paste0('Magnitude of sensor difference before drift correction')
