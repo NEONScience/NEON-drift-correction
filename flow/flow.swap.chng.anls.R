@@ -205,6 +205,9 @@ for(dpId in base::names(sitzDpz)){
       yLab <- "Post-swap temp - Pre-swap temp [C]"
   } else if (dpId == "DP0.20016"){
       yLab <- paste0("Post-swap - Pre-swap water level [m]")
+  } else if (dpId == "DP0.00098"){
+    yLab <- paste0("Post-swap - Pre-swap Rel Hum [%]")  
+  
   } else {
     yLab <- paste0("Post-swap - Pre-swap reading, ", dpId)
     
