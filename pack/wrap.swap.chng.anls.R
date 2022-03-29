@@ -109,10 +109,8 @@ wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60
           next()
         }
         
-        subDtDrft <- dtDrft %>% base::subset(exst == 1)
-        
         # Identify the gaps between sensor swaps
-        swapGaps <- def.id.swap.gap(subDtDrft)
+        swapGaps <- def.id.swap.gap(dtDrft)
         
         swapGaps$diffCalb <- NA
         swapGaps$diffDrft <- NA

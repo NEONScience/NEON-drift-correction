@@ -24,12 +24,12 @@ sapply(list.files(funcDir, pattern = ".R"), function(x) source(paste0(funcDir,x)
 bucket <- "dev-is-drift"
 drftCol <- "driftCorrected"
 timeCol <- "time"
-maxGapMins <- 60 # The max time gap in mins allowed between sensor swaps
+maxGapMins <- 10 # The max time gap in mins allowed between sensor swaps
 srchTimeMins <- 60 # During a sensor swap, search +/- this many mins for stretches of NA that may actually better represent a swap gap
 otlrDiffThr <- 10 # The threshold for outlier exclusion in calibrated units (only if manlOtlrThr=TRUE)
 manlOtlrThr <- FALSE # Should a manual outlier exclusion be performed? Set to FALSE for auto outlier removal
-dpIdz <- c("DP0.00003","DP0.00004","DP0.00022","DP0.00024","DP0.00098","DP0.20016", "DP0.20053")
-# dpIdz <- "DP0.00004"
+#dpIdz <- c("DP0.00003","DP0.00004","DP0.00022","DP0.00024","DP0.00098","DP0.20016", "DP0.20053")
+dpIdz <- "DP0.00098"
 # =========================================================================== #
 #                        SET S3 ENVIRONMENT/ACCESS
 # =========================================================================== #
