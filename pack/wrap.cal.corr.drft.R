@@ -61,8 +61,12 @@ wrap.cal.corr.drft <- function(idDp,
     rspn <- httr::GET(url=urlApi,httr::add_headers(Accept = "application/json"))
     cntn <- httr::content(rspn,as="text")
     cal <- jsonlite::fromJSON(cntn,simplifyDataFrame=T, flatten=T)$calibration
-    cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validStartTime/1000 # milliseconds since 1970
-    cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validEndTime/1000 # milliseconds since 1970
+    cal$validStartTime <- base::strptime(cal$validStartTime,format='%Y-%m-%dT%H:%M:%OSZ',tz='GMT')
+    cal$validEndTime <- base::strptime(cal$validEndTime,format='%Y-%m-%dT%H:%M:%OSZ',tz='GMT')
+    if(base::all(base::is.na(cal$validStartTime))){
+      cal$validStartTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validStartTime/1000 # milliseconds since 1970
+      cal$validEndTime <- base::as.POSIXct('1970-01-01',tz="GMT")+cal$validEndTime/1000 # milliseconds since 1970
+    }
     
     # # Put cal metadata into a data frame - This not used, but maybe in the future...
     # metaCal <- base::data.frame(path=NA,
@@ -81,7 +85,13 @@ wrap.cal.corr.drft <- function(idDp,
     # Get the calibration coefficients for the install period
     calInst <- cal[cal$validStartTime < assetHist$installDate[idxInst],] # Restrict calibrations to those before the sensor was installed
     idxCalInst <- which.min(assetHist$installDate[idxInst]-calInst$validStartTime) # Get the most recent cal prior to sensor install
-    calCoefInst <- calInst$calibrationMetadatum[idxCalInst][[1]] # Get the calibration coefficients.
+    calCoefInst <- calInst$calibrationMetadata[idxCalInst][[1]] # Get the calibration coefficients.
+    if(base::is.null(calCoefInst)){
+      calCoefInst <- calInst$calibrationMetadatum[idxCalInst][[1]] # Get the calibration coefficients.
+      calMetaName <- 'calibrationMetadatum'
+    } else {
+      calMetaName <- 'calibrationMetadata'
+    }
     nameCalCoefInst <- names(calCoefInst)
     nameCalCoefInst[nameCalCoefInst=='name'] <- "Name"
     nameCalCoefInst[nameCalCoefInst=='value'] <- "Value"
@@ -135,7 +145,7 @@ wrap.cal.corr.drft <- function(idDp,
     }
     
     # Pull the drift coefficients
-    calCoefDrift <- calDrft$calibrationMetadatum[idxCalDrft][[1]] # Get the calibration coefficients.
+    calCoefDrift <- calDrft[[calMetaName]][idxCalDrft][[1]] # Get the calibration coefficients.
     nameCalCoefDrift <- names(calCoefDrift)
     nameCalCoefDrift[nameCalCoefDrift=='name'] <- "Name"
     nameCalCoefDrift[nameCalCoefDrift=='value'] <- "Value"
