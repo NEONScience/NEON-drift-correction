@@ -1,16 +1,20 @@
-#' @title Flow script to grab presto data and save to s3 bucket (if not already there), and perform drift correction
+#' @title Flow script to grab trino data and save to cloud bucket (if not already there), and perform drift correction
 #' @author Guy Litt, Cove Sturtevant
 #' @description Given a list of full DP0 NEON DP IDs for (dlType="cstm"),
-#' download data from presto and place in s3 dev-is-drift bucket
+#' download data from presto and place in gcp neon-dev-is-drift bucket
 
 # Changelog / contributions
 #  2021-03-23 originally created, GL
+#  2022-04-18 migrate to trino and GCP
 
-library(aws.s3)
 library(som)
 library(data.table)
 library(stringr)
 library(dplyr)
+library(googleCloudStorageR)
+library(gargle)
+
+
 # Import functions
 funcDir <- '~/R/NEON-drift-correction/pack/'
 sapply(list.files(funcDir, pattern = ".R"), function(x) source(paste0(funcDir,x)))
@@ -23,11 +27,12 @@ timeAgr <- 5 # L0 time sampling interval in mins
 urlBaseApi <- 'den-prodcdsllb-1.ci.neoninternal.org/cdsWebApp'
 
 # =========================================================================== #
-#                        SET S3 ENVIRONMENT/ACCESS
+#                        SET ENVIRONMENT/ACCESS
 # =========================================================================== #
-bucket <- "dev-is-drift"
-# Set the system environment for this bucket (assumes ~/.profile exists w/ secret key)
-def.set.s3.env(bucket = bucket)
+bucket <- "neon-dev-is-drift"
+
+# Authenticate and set GCS environment
+def.set.gcp.env(bucket=bucket)
 
 
 # =========================================================================== #
@@ -37,8 +42,8 @@ def.set.s3.env(bucket = bucket)
 if(dlType == "cstm"){
   idDps <- data.frame(idDp="NEON.D13.WLOU.DP0.20053.001.01325.102.100.000",funcCal="def.cal.conv.poly",stringsAsFactors=FALSE)
 } else if (dlType == "coLoc"){
-  # !!!The parameter file from S3 needs to be re-written in the format of testPara given below (in this if statement)
-  # testPara <- aws.s3::s3readRDS(object = "params/testParaCoLoc.rds",bucket = bucket)
+  # !!!The parameter file from GCS needs to be re-written in the format of testPara given below (in this if statement)
+  # testPara <- googleCloudStorageR::gcs_get_object("params/testParaCoLoc.rds",parseFunction=googleCloudStorageR::gcs_parse_rds)
   # idDps <- base::c(testPara$idDp, testPara$idDpCoLoc) %>%  base::gsub(pattern = "[\"]", replacement = "")
   testPara <- data.frame(idDp="NEON.D10.CPER.DP0.00022.001.01324.000.040.000",funcCal="def.cal.conv.poly",
                       idDpCoLoc="NEON.D10.CPER.DP0.00023.001.01315.000.040.000",funcCalCoLoc="def.cal.conv.poly",
@@ -247,7 +252,7 @@ if(dlType == "cstm"){
 # =========================================================================== #
 #                      DOWNLOAD DATA & DRIFT CORRECT
 # =========================================================================== #
-tryMax <- 3 # Number of tries to download data from Presto without error
+tryMax <- 3 # Number of tries to download data from Trino without error
 for(idxRow in seq_len(nrow(idDps))){
   idDp <- idDps$idDp[idxRow] # Full DP ID
   funcCal <- idDps$funcCal[idxRow] # Calibration function
@@ -275,11 +280,11 @@ for(idxRow in seq_len(nrow(idDps))){
   if(base::grepl("DP0", idDp)){
     idxTry <- 0
     while (idxTry <= tryMax) {
-      data <- try(def.dl.data.psto.s3.drft(idDp = idDp,fldrBase = NULL,
-                                           ymBgn = ymBgn, ymEnd = ymEnd,
-                                           timeAgr = timeAgr,
-                                           bucket = bucket,
-                                           makeNewFldr = FALSE),
+      data <- try(def.dl.data.trno.gcs.drft(idDp = idDp,
+                                            fldrBase = NULL,
+                                            ymBgn = ymBgn, 
+                                            ymEnd = ymEnd,
+                                            timeAgr = timeAgr),
                   silent=FALSE)
       if('try-error' %in% base::class(data)){
         idxTry <- idxTry + 1
@@ -309,19 +314,26 @@ for(idxRow in seq_len(nrow(idDps))){
   assetHist <- rtrnDrft$assetHist
   
   # ------------------------------------------------------------------------- #
-  #          Subset drift-corrected data & write to S3 bucket
+  #          Subset drift-corrected data & write to bucket
   # ------------------------------------------------------------------------- #
   # Commenting this for now. Do filtering later on analysis in case the non-drift corrected periods after last install are worth anything.
   #dataDrft <- dataDrft %>% base::subset(drftCorrFlag) %>% data.table::as.data.table() 
   
-  # Split drift-corrected data into monthly datasets & Write to S3
+  # Split drift-corrected data into monthly datasets & Write to bucket
   dataDrft$yearMnth <- paste0(lubridate::year(dataDrft$time), "-", stringr::str_pad(lubridate::month(dataDrft$time), 2, pad = "0"))
   lsDrft <- base::split(dataDrft,dataDrft$yearMnth)
   for(ym in base::names(lsDrft) ){
-    baseDirNam <- def.crea.s3.fldr(idDp,fldrBase = NULL, type ="driftCorr", bucket = bucket, timeAgr = timeAgr, makeNewFldr = FALSE)
+    baseDirNam <- def.get.bckt.fldr(idDp,fldrBase = NULL, type ="driftCorr", timeAgr = timeAgr)
     fullPathNam <- base::paste0(baseDirNam,"_", ym,"_driftCorr.rds")
     dataDrftMnth <- lsDrft[[ym]] %>% dplyr::select(-"yearMnth")
-    aws.s3::s3saveRDS(x = dataDrftMnth, object = fullPathNam, bucket = bucket)
+    googleCloudStorageR::gcs_upload(file=dataDrftMnth,
+                                      name=fullPathNam,
+                                      object_function=
+                                        function(input,output){
+                                          base::saveRDS(object=input,file=output)
+                                        },
+                                      predefinedAcl='bucketLevel')
+    
   }
   
 }
