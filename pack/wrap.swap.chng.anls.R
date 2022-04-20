@@ -6,6 +6,7 @@
 #' pre-swap reading. Do this for both the calibrated readings
 #' and the drift corrected readings. Generate a box plot of these 
 #' differences for each data product. Save plot to bucket/analysis/sensorSwap/plots/
+#' NOTE: requires that you run def.set.gcp.env to perform authentication and set bucket
 #' @details Outliers in the calculated difference between pre-swap and 
 #' post-swap sensor readings are possible. The automated outlier removal process
 #' finds the minimum in the sd of the calibrated and drift-corrected data value 
@@ -13,7 +14,6 @@
 #' threshold. Otherwise, a manual threshold may be applied, but caution should
 #' be exercised when considering multiple data products with different units.
 #' @param idDpsVec A character-class vector of full dataproduct IDs of interest
-#' @param bucket the s3 bucket name. Default 'dev-is-drift'
 #' @param maxGapMins Numeric. The maximum allowable gap of missing data for a given sensor swap. Default 60.
 #' @param timeCol The time column name in the data. Default "time"
 #' @param manlOtlrThr Boolean. Should an outlier threshold be designated manually? Default FALSE.
@@ -26,15 +26,19 @@
 #' 
 # Changelog / Contributions
 #   2021-05-07 Guy Litt, originally created
+#   2022-04-19 Cove Sturtevant, migrate from S3 to GCS cloud storage
 
-library(aws.s3)
 library(tidyverse)
 library(stringr)
 library(dplyr)
 
 # TODO add term # to consideration
 
-wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60, timeCol="time", manlOtlrThr = FALSE, oltrDiffThr = 10){
+wrap.swap.chng.anls <- function(idDpsVec, 
+                                maxGapMins=60, 
+                                timeCol="time", 
+                                manlOtlrThr = FALSE, 
+                                otlrDiffThr = 10){
   if(!"character" %in% base::class(idDpsVec)){
     stop("idDpsVec should be character class.")
   }
@@ -48,10 +52,10 @@ wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60
   for(dpIdVerTerm in dpIdsUniq){
     
     dpIdMain <- substr(dpIdVerTerm,start=1, stop = 9)
-    message(paste0("Grabbing all data from: ", aws.s3::get_bucketname(bucket = bucket, x = paste0('data/L1drift/',dpIdMain,"/")) ," to assess swap gap differences"))
+    message(paste0("Grabbing all data from: ", googleCloudStorageR::gcs_get_global_bucket(), paste0(' in folder: data/L1drift/',dpIdMain,"/")) ," to assess swap gap differences")
     
     
-    drftNamz <- aws.s3::get_bucket_df(bucket = bucket, prefix = paste0('data/L1drift/',dpIdMain,"/"), max = Inf)$Key
+    drftNamz <- googleCloudStorageR::gcs_list_objects(detail="summary", prefix=paste0('data/L1drift/',dpIdMain,"/"))$name
     drftNamz <- drftNamz[base::grep(".rds",drftNamz)]
 
     if(!base::grepl("TERM",dpIdVerTerm)){ # Further subset data by term if it was specified:
@@ -74,7 +78,6 @@ wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60
     
     for(site in siteNamz){
       dpSiteId <- paste0('data/L1drift/',dpIdMain,"/",site,"/")
-      # drftNamz <- aws.s3::get_bucket_df(bucket = bucket, prefix = dpSiteId)$Key
       siteDrftNamz <- drftNamz[base::grep(site, drftNamz)]
       if(base::length(siteDrftNamz) == 0){
         warning(paste0("No data for ", dpId, " at ", site))
@@ -101,18 +104,15 @@ wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60
       for(horVer in base::unique(horVersMl)){
         drftNamzSub <- siteDrftNamz[base::which(horVersMl==horVer)]
         
-        lsDrftSiteLoc <- base::lapply(drftNamzSub, function(dn) aws.s3::s3readRDS(object = dn, bucket = bucket))
-        
+        lsDrftSiteLoc <- lapply(drftNamzSub,googleCloudStorageR::gcs_get_object,parseFunction=googleCloudStorageR::gcs_parse_rds)
         dtDrft <- data.table::rbindlist(lsDrftSiteLoc) #%>% base::subset(exst == 1)
         
         if(base::nrow(dtDrft) == 0){
           next()
         }
         
-        subDtDrft <- dtDrft %>% base::subset(exst == 1)
-        
         # Identify the gaps between sensor swaps
-        swapGaps <- def.id.swap.gap(subDtDrft)
+        swapGaps <- def.id.swap.gap(dtDrft)
         
         swapGaps$diffCalb <- NA
         swapGaps$diffDrft <- NA
@@ -209,10 +209,25 @@ wrap.swap.chng.anls <- function(idDpsVec, bucket = 'dev-is-drift', maxGapMins=60
     
     # write plots to bucket
     plotObjName <- base::paste0("analysis/sensorSwap/plots/",dpId,"_",maxGapMins,"GapMins_ReadingChangeFromSwapRawVsDrift.rds")
-    aws.s3::s3saveRDS(x = plotdiffCalbVsDrft,bucket = bucket,object = plotObjName)
+    googleCloudStorageR::gcs_upload(file=plotdiffCalbVsDrft,
+                                    name=plotObjName,
+                                    object_function=
+                                      function(input,output){
+                                        base::saveRDS(object=input,file=output)
+                                      },
+                                    predefinedAcl='bucketLevel')
+    
+    
     
     plotNameTsGap <- base::paste0("analysis/sensorSwap/plots/",dpId,"_",maxGapMins,"GapMins_PrePostSwapTs.rds")
-    aws.s3::s3saveRDS(x = plotTsGapLs,bucket = bucket,object = plotNameTsGap)
+    googleCloudStorageR::gcs_upload(file=plotTsGapLs,
+                                    name=plotNameTsGap,
+                                    object_function=
+                                      function(input,output){
+                                        base::saveRDS(object=input,file=output)
+                                      },
+                                    predefinedAcl='bucketLevel')
+    
     
     message(paste0("wrote sensor swap plot in bucket to ",plotObjName, " and ", plotNameTsGap))
     

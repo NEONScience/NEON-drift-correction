@@ -34,6 +34,7 @@ def.id.swap.gap <- function(dtDrft, instIdCol = "instDate",  swapIdCol = "U_CVAL
   # sensor Times:
   sensTimz <- stats::na.omit(base::unique(dtDrft[[instIdCol]]))
   
+  # dtDrft NA data remove:
   idxsNa <- base::which(base::is.na(dtDrft[[dataCol]])) 
   if(length(idxsNa)>0){
     dtDrftSub <- dtDrft[-idxsNa,]
@@ -41,13 +42,13 @@ def.id.swap.gap <- function(dtDrft, instIdCol = "instDate",  swapIdCol = "U_CVAL
     dtDrftSub <- dtDrft
   }
   
-  # dtDrft NA data remove:
   swapSumm <- dtDrftSub %>% dplyr::group_by(instDate) %>% 
                     dplyr::summarise(dataBgn = base::min(time),
                                      dataEnd = base::max(time))
   
 
   swapSumm <- swapSumm[base::which(!base::is.na(swapSumm[[instIdCol]])),]
+
   
   # Identify TRUE gaps in the data:
   if(base::nrow(swapSumm)>1){
@@ -64,24 +65,34 @@ def.id.swap.gap <- function(dtDrft, instIdCol = "instDate",  swapIdCol = "U_CVAL
     bgnInstNext <- swapSumm$dataBgn[2:base::nrow(swapSumm)]
     swapSumm$diffMinsNonThr <- base::c(NA,base::difftime(bgnInstNext,endInstPrev, units = "mins"))
     # ------------
-    # The indices in dtDrft that correspond to time window around a swap: 
-    idxsTimeRgn <- lapply(1:(nrow(swapSumm)-1), function(i) intersect(which(dtDrft[[timeCol]] >  endInstPrevThr[i]),
-                                                   which(dtDrft[[timeCol]] < bgnInstNextThr[i]) ) )
     
-    # The indices in rsltNaGap that align with time window around a swap:
-    idxsNaGapWndo <- lapply(1:length(idxsTimeRgn), function(i) intersect(which(rsltNaGap$idxsNaBgn <= max(idxsTimeRgn[[i]])),
-                                                        which(rsltNaGap$idxsNaEnd >= min(idxsTimeRgn[[i]])) ) )
+    # Interim fix for installs that don't line up with gaps... get rid of those that have no
+    # NAs around the install
+    freq <- median(diff(dtDrft$time))
+    swapSumm$diffMinsNonThr[swapSumm$diffMinsNonThr <= freq] <- NA
+    swapSumm$diffMins <- swapSumm$diffMinsNonThr
     
-    if(length(idxsNaGapWndo) > 0){
-      diffTimz <- base::lapply(idxsNaGapWndo, function(j) 
-                                            ifelse(!is.null(j), base::difftime(dtDrft[[timeCol]][rsltNaGap$idxsNaEnd[j]],
-                                                           dtDrft[[timeCol]][rsltNaGap$idxsNaBgn[j]],
-                                                           units = "mins"),NA ))
+    # Turning this section off for now until the TODO can be completed. See interim fix above.
+    if(FALSE){
+      # The indices in dtDrft that correspond to time window around a swap: 
+      idxsTimeRgn <- lapply(1:(nrow(swapSumm)-1), function(i) intersect(which(dtDrft[[timeCol]] >  endInstPrevThr[i]),
+                                                     which(dtDrft[[timeCol]] < bgnInstNextThr[i]) ) )
       
-      #TODO match diffTimz w/ actual time in swapSumm
-      swapSumm$diffMins <- c(NA, unlist(diffTimz))
-    } else {
-      swapSumm$diffMins <- NA
+      # The indices in rsltNaGap that align with time window around a swap:
+      idxsNaGapWndo <- lapply(1:length(idxsTimeRgn), function(i) intersect(which(rsltNaGap$idxsNaBgn <= max(idxsTimeRgn[[i]])),
+                                                          which(rsltNaGap$idxsNaEnd >= min(idxsTimeRgn[[i]])) ) )
+      
+      if(length(idxsNaGapWndo) > 0){
+        diffTimz <- base::lapply(idxsNaGapWndo, function(j) 
+                                              ifelse(!is.null(j), base::difftime(dtDrft[[timeCol]][rsltNaGap$idxsNaEnd[j]],
+                                                             dtDrft[[timeCol]][rsltNaGap$idxsNaBgn[j]],
+                                                             units = "mins"),NA ))
+        
+        #TODO match diffTimz w/ actual time in swapSumm
+        swapSumm$diffMins <- c(NA, unlist(diffTimz))
+      } else {
+        swapSumm$diffMins <- NA
+      }
     }
     
   } else {
@@ -89,5 +100,7 @@ def.id.swap.gap <- function(dtDrft, instIdCol = "instDate",  swapIdCol = "U_CVAL
     swapSumm$diffMins <- NA
   }
 
+  
+  
   return(swapSumm)
 }
