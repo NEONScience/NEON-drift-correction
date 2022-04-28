@@ -4,6 +4,8 @@
 #' identifier, identify sensor swaps.
 #' 
 #' @param dtDrft Data.table class time series data with an identifier corresponding to a sensor
+#' @param instIdCol Column name in dtDrft corresponding to install date
+#' @param swapIdCol
 #' @param swapIdCol the identifier column name
 #' @param maxGapDataPts - the max # of data points allowed to find gaps of interest. Default null returns all gaps.
 #' @return a dataframe of sensor  gap begin and  end row indices corresponding to \code{dtDrft}
@@ -13,6 +15,7 @@
 #' 
 # Changelog 
 #   2021-04-23 Originally created, Guy Litt
+#   2022-04-25 Update documentation, GL
 #  TODO Search for a swap gap within a specified time range, srchTimeMins If gap identified, redefine the swap gap.
 #   E.g. WALK.DP0.00004 200.000 - instDate defined as 2020-10-01 18:47:03, but data begin at 18:40:57 following a 5+ hour gap for sensor swap.
 # instIdCol <- "instDate"

@@ -8,34 +8,40 @@
 #' differences for each data product.
 #' @details The 2021-04-29 implementation is not adequate for dpIds with multiple terms of interest. Use flow.drft.eval and wrap.swap.chng.anls instead.
 #' @seealso flow.save.psto.s3.R
-# 
+#' @notes rosetta stone for S3 to GCP using v0.3.5 eddycopipe here: https://docs.google.com/spreadsheets/d/1WlR3JMe99H3GlD2I-VGRQkuo5f377amalH-u_Ghfs3M/edit#gid=1310070536 
+
+
 # Changelog / Contributions
 #   2021-04-29 Guy Litt, originally created
 #   2021-05-13 fix bug in difftime calc to ensure units in mins
-library(aws.s3)
+#   2022-04-25 Change S3 to GCS using eddycopipe v0.3.5 functions
+
+library(googleCloudStorageR)
+library(gargle)
 library(tidyverse)
 library(stringr)
 library(dplyr)
+library(eddycopipe) # github.com/NEONScience/eddyInquiry/pkg/eddycopipe : translates past s3 functions to GCS 
 # Import functions
 funcDir <- '~/R/NEON-drift-correction/pack/'
 sapply(list.files(funcDir, pattern = ".R"), function(x) source(paste0(funcDir,x)))
 
 # TODO Define these parameters
-bucket <- "dev-is-drift"
+bucket <- "neon-dev-is-drift"
 drftCol <- "driftCorrected"
 timeCol <- "time"
 maxGapMins <- 10 # The max time gap in mins allowed between sensor swaps
 srchTimeMins <- 60 # During a sensor swap, search +/- this many mins for stretches of NA that may actually better represent a swap gap
 otlrDiffThr <- 10 # The threshold for outlier exclusion in calibrated units (only if manlOtlrThr=TRUE)
 manlOtlrThr <- FALSE # Should a manual outlier exclusion be performed? Set to FALSE for auto outlier removal
-#dpIdz <- c("DP0.00003","DP0.00004","DP0.00022","DP0.00024","DP0.00098","DP0.20016", "DP0.20053")
-dpIdz <- "DP0.00098"
+dpIdz <- c("DP0.00003","DP0.00004","DP0.00022","DP0.00024","DP0.20016", "DP0.20053","DP0.00098")
+
 # =========================================================================== #
-#                        SET S3 ENVIRONMENT/ACCESS
+#                        SET CLOUD ENVIRONMENT/ACCESS
 # =========================================================================== #
 
-# Set the system environment for this bucket (assumes ~/.profile exists w/ secret key)
-def.set.s3.env(bucket = bucket)
+# Set the system environment for this bucket
+def.set.gcp.env(bucket=bucket)
 
 # Read in site-dp matrix
 siteDpMat <- utils::read.csv("/scratch/SOM/dataProductInfo/SiteProductInstanceMatrixDp00.csv")
@@ -56,10 +62,10 @@ base::names(sitzDpz) <- dpIdz
 
 allPlotGapDiff <- base::list()
 for(dpId in base::names(sitzDpz)){
-  message(paste0("Grabbing data from: ", aws.s3::get_bucketname(bucket = bucket, x = paste0('data/L1drift/',dpId,"/")) ))
+  message(paste0("Grabbing data for : ",dpId)) 
   
   
-  drftNamz <- aws.s3::get_bucket_df(bucket = bucket, prefix = paste0('data/L1drift/',dpId,"/"))$Key
+  drftNamz <-  eddycopipe::neon_gcs_list_objects(bucket = bucket, prefix = paste0('data/L1drift/',dpId,"/"))$Key
   drftNamz <- drftNamz[base::grep(".rds",drftNamz)]
   
   plotTsGapLs <- base::list()
@@ -67,7 +73,10 @@ for(dpId in base::names(sitzDpz)){
   siteNamz <- sitzDpz[[dpId]]
   for(site in siteNamz){
     dpSiteId <- paste0('data/L1drift/',dpId,"/",site,"/")
-    drftNamz <- aws.s3::get_bucket_df(bucket = bucket, prefix = dpSiteId)$Key
+  
+    message(paste0("Grabbing ",dpSiteId))
+    
+    drftNamz <- eddycopipe::neon_gcs_list_objects(bucket=bucket, prefix = dpSiteId)$Key
     
     if(base::length(drftNamz) == 0){
       warning(paste0("No data for ", dpId, " at ", site))
@@ -86,7 +95,7 @@ for(dpId in base::names(sitzDpz)){
     for(horVer in base::unique(horVersMl)){
       drftNamzSub <- drftNamz[base::which(horVersMl==horVer)]
       
-      lsDrftSiteLoc <- base::lapply(drftNamzSub, function(dn) aws.s3::s3readRDS(object = dn, bucket = bucket))
+      lsDrftSiteLoc <- base::lapply(drftNamzSub, function(dn) eddycopipe::wrap_neon_gcs_read(object = dn, bucket = bucket))
       
       dtDrft <- data.table::rbindlist(lsDrftSiteLoc) #%>% base::subset(exst == 1)
       
@@ -169,14 +178,23 @@ for(dpId in base::names(sitzDpz)){
   }
   
   swapDt <- data.table::rbindlist(swapGapLs)
+  
+  # Upload all swap results:
+  fileNameSwapDt <- paste0("analysis/sensorSwap/",dpId,"_swapGapDataTable_",maxGapMins,"mins.RDS")
+  eddycopipe::wrap_neon_gcs_upload(x = swapDt,bucket = bucket,object = fileNameSwapDt)
+  
   if(base::nrow(swapDt) == 0){
     message(paste0("No swap gap data available to assess for ", dpId, ". Consider increasing maxGapMins."))
     next()
   }
   
+  
+  
   # Subset swapDt to only periods within maxGapMins
   
   swapDt <- swapDt[swapDt$diffMins < maxGapMins]
+  
+  
   
   
   # ======================================
@@ -234,15 +252,14 @@ plotdiffCalbVsDrft <- meltSwapRenm %>%
   
   # write plots to bucket
   plotObjName <- base::paste0("analysis/sensorSwap/plots/",dpId,"_",maxGapMins,"GapMins_ReadingChangeFromSwapRawVsDrift.rds")
-  aws.s3::s3saveRDS(x = plotdiffCalbVsDrft,bucket = bucket,object = plotObjName)
-
+  eddycopipe::wrap_neon_gcs_upload(x = plotdiffCalbVsDrft,bucket = bucket,object = plotObjName)
+  # aws.s3::s3saveRDS(x = plotdiffCalbVsDrft,bucket = bucket,object = plotObjName)
+ 
   plotNameTsGap <- base::paste0("analysis/sensorSwap/plots/",dpId,"_",maxGapMins,"GapMins_PrePostSwapTs.rds")
-  aws.s3::s3saveRDS(x = plotTsGapLs,bucket = bucket,object = plotNameTsGap)
+  eddycopipe::wrap_neon_gcs_upload(x = plotTsGapLs,bucket = bucket,object = plotNameTsGap)
+  # aws.s3::s3saveRDS(x = plotTsGapLs,bucket = bucket,object = plotNameTsGap)
   
-  # plotGapVsTime <- swapDtRmOtlr %>% 
-  #   ggplot(aes(x = diffMins, y = diffCalb)) +
-  #   geom_point()
-  # 
+
 
 }
 
