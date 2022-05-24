@@ -20,6 +20,10 @@
 # Changelog / contributions
 #  2022-05-06 beginning to craft analysis
 
+
+# TODO consider completely re-downloading all timeseries data. Some unexpected gaps exist (e.g. idx=2102; ARIK 2019-10-23 18:10-19:10 at 101.100 should be continuous, with 0 gaps, whereas 102.100 has a gap.)
+#       This shouldn't affect results, but it may help with filtering what to keep, and classifying whether just one sonde was calibrated or both
+
 # TODO change this logic to entirely use the maximum gap as the presumed calibration period
 #      (rather than keeping pre-post readings that worked from cluster analysis)
 # TODO and then ensure consistent calculations of pre-post metrics for all calibrations
@@ -29,7 +33,9 @@
 
 # TODO Should consider fulcrum data and field-recorded biofouling. Ignore drift analyses where those data indicate non-'light' biofouling.
 
+# TODO test time gap calc, e.g. POSE_2021-03-31 should range from 13:02 to 16:15 ~=3hrsl (idx 600 671 709 767 830; rsltDiff ix 585 656 694 751 813)
 
+# TODO consider filtering data with excessive time gaps
 
 library(iRobert.base)  # Present on dev-2 as of Spring, 2022
 library(eddycopipe) # Present on dev-2 as of Spring, 2022
@@ -91,8 +97,6 @@ typzAnls <- unique(dtSplt$type)
 
 clstRsltObj <- dtObj[grep("kMeansClstrRsltData", dtObj$Key), ]
 
-
-
 if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
   lsRsltDiff <- base::list()
   
@@ -117,28 +121,123 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
     dfRsltDiff$site <- clstRsltObj$site[idx]
     dfRsltDiff$term <- clstRsltObj$termNum[idx]
     
-    # -------------------- Alternative gap identification ------------------ #
-    wideData <- reshape2::melt(data = clstRslt,id.vars = timeCol,
+    # ------------ Quantify the maintenance's duration, gapDur  -------------- #
+    longData <- reshape2::melt(data = clstRslt,id.vars = timeCol,
                                measure.vars = c(nameS1,nameS2))
-    # wideData <- wideData[order(wideData[[timeCol]]),]
-    reLong <- reshape2::dcast(wideData,formula= timeRndMin~variable, value.var = "value")
-    reLong <- reLong[order(reLong[,timeCol]),]
-    tDiff <- diff(reLong[[timeCol]],lag=1)
     
+    # See if there are large time differences in gaps b/w S1 and S2. If so, something might be wrong.
+    tDiffBoth <- longData %>% group_by(variable) %>% mutate(timeDiff = c(NA,diff(timeRndMin)))
+    rsltMax <- tDiffBoth %>% group_by(variable) %>% summarise(max(timeDiff, na.rm = TRUE))
+    if(abs(abs(rsltMax[1,2]) - abs(rsltMax[2,2])) > 20){
+      warning(paste0("The S1 and S2 time gaps differ by ", abs(rsltMax[1,2]) - abs(rsltMax[2,2])," mins at ", clstRsltObj$Key[idx]))
+    } 
+    
+    
+    # longData <- longData[order(longData[[timeCol]]),]
+    reWide <- reshape2::dcast(longData,formula= timeRndMin~variable, value.var = "value")
+    reWide <- reWide[order(reWide[,timeCol]),]
+    tDiff <- diff(reWide[[timeCol]],lag=1)
+    
+    flagMissDataNextDay <- 0
+    # ------------------------------------------------------------------------ #
+    if(max(tDiff) < 120){ # The gap is too short for a maintenance interval. 
+      #                     Consider redownloading data, and the next day's worth of data too
+      # in other words, If gapDur is too short, re-download data and broaden the window.
+      
+      # Reconstruct dp ID:
+      dpId <- paste0("NEON.", substr(clstRsltObj$dpId[idx], start=1, stop = 28),
+                     ".HOR.VER.000")
+      timeBgn <- as.POSIXlt(dfRsltDiff$date)             
+      timeEnd <- as.POSIXlt(dfRsltDiff$date + 2)
+      
+      # The following code borrowed from flow.rtrn.alrt.snde.dtct.drft.R in NEONScience/L0-tracking
+      rptHorSnde <- alerts::def.snde.s1.s2.hor(siteID = dfRsltDiff$site,timeDat = timeBgn)
+      
+      # Ensure appropriate HOR.VER for AIS sites
+      s1Dps <- base::gsub("HOR.VER",rptHorSnde$s1Loc,dpId)
+      s2Dps <- base::gsub("HOR.VER",rptHorSnde$s2Loc,dpId)
+      
+      # GRAB DATA  (this is only one day and two 1-min streams, so okay for a presto pull)
+      grabData <- base::suppressMessages(iRobert.base::def.get.l0.data(site = site,streams = c(s1Dps,s2Dps),startDate = timeBgn, endDate = timeEnd))
+      
+      # Separate data by stream:
+      dataS1 <- base::lapply(s1Dps, function(dp) grabData[base::grep(dp, grabData$meas_strm_name),])
+      base::names(dataS1) <- s1Dps
+      dataS2 <- base::lapply(s2Dps, function(dp) grabData[base::grep(dp, grabData$meas_strm_name),])
+      base::names(dataS2) <-  s2Dps
+      # Just keep the list of dpId datasets with more than 1 row of data & rename
+      totDatS1 <- unlist(lapply(names(dataS1), function(i) nrow(dataS1[[i]])>1))
+           totDatS2 <- unlist(lapply(names(dataS2), function(i) nrow(dataS2[[i]])>1))
+
+      
+      if(!base::any(totDatS1) || !base::any(totDatS2)){
+        # Skip this round (AND FLAG!!) - no useful extra data to analyze
+        print(paste0("Empty dataset on the following day for ",
+                     c(s1Dps, s2Dps)[which(c(totDatS1, totDatS2)==FALSE)], " on ",
+                     timeBgn) )
+        flagMissDataNextDay <- 1
+        next()
+      }
+      
+      datS1 <- dataS1[[totDatS1]]
+      datS2 <- dataS2[[totDatS2]]
+      names(datS1) <- c("timeChar","dpId","data.101.100")
+      names(datS2) <- c("timeChar","dpId","data.102.100")
+      # Round timestamps to the minute to facilitate merging
+      datS1$timeRndMin <- lubridate::round_date(as.POSIXct(datS1$timeChar,tz="UTC"),
+                                                unit = "min")
+      datS2$timeRndMin <- lubridate::round_date(as.POSIXct(datS2$timeChar,tz="UTC"),
+                                                unit = "min")
+      # Remove un-needed cols and rename dpId col
+      datS1 <- datS1 %>% select(-dplyr::all_of(c("timeChar","dpId")))
+      datS2 <- datS2 %>% select(-dplyr::all_of(c("timeChar","dpId")))
+      # datS1 <- datS1 %>% rename(dpIdS1=dpId)
+      # datS2 <- datS2 %>% rename(dpIdS2=dpId)
+      # Merging by rounded time
+      datBoth <- merge(datS1,datS2, by ="timeRndMin") # A wide format
+      
+      if(base::nrow(datBoth) == 0){
+        print(paste0(dpId, " has no overlapping S1/S2 data on ", timeBgn))
+        next()
+      }
+      
+      datBoth$diff <- datBoth$data.102.100 - datBoth$data.101.100
+      
+      # Now just assume the accuracy metrics don't change from rsltDiff
+      datBoth$accS1 <- stats::median(clstRslt$accS1,na.rm=TRUE)
+      datBoth$accS2 <- stats::median(clstRslt$accS2,na.rm=TRUE)
+      datBoth$cmboAcc <- stats::median(clstRslt$cmboAcc,na.rm=TRUE)
+      datBoth$termId <- base::strsplit(dpId,split = ".",fixed=TRUE)[[1]][7]
+      datBoth$visit <- clstRslt$visit[1]   
+   
+      # Now combine the original clstRslt with the next day's datBoth
+      # clstRslt <- bind_rows(clstRslt,datBoth) # when d/l just next day (not current + next day)
+      clstRslt <- datBoth
+      # Add in new data and re-assess for gaps
+      # reWide <- bind_rows(reWide,datBoth[,names(reWide)])
+      reWide <- datBoth[,names(reWide)]
+      tDiff <- diff(reWide[[timeCol]],lag=1)
+      
+    } 
+    # ------------------------------------------------------------------------ #
     
     idxPre <- which.max(tDiff)
     idxPost <- idxPre + 1
-    endTimePre <- reLong[idxPre,timeCol]
-    bgnTimePost <- reLong[idxPost,timeCol]
+    endTimePre <- reWide[idxPre,timeCol]
+    bgnTimePost <- reWide[idxPost,timeCol]
     
     gapDur <- difftime(bgnTimePost,endTimePre,units="mins")
-    # TODO double check this is correct. Can S1 and S2 have varying time gaps???
+    # TODO double check this is correct. S1 and S2 can have varying time gaps!!!
+   
+   
+  # } # end for loop
+    
     
     
     dfRsltDiff$endTimePre <- endTimePre
     dfRsltDiff$bgnTimePost <- bgnTimePost
     dfRsltDiff$gapDur <- gapDur
-    
+    dfRsltDiff$flagMissDataNextDay <- flagMissDataNextDay
     # TODO Based on gap duration, consider pre-cal and post-cal natural fluctuations within the same time duration
     
   
@@ -146,7 +245,7 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
     clstRslt$grp <- NA
     clstRslt$grp[1:idxPre] <- 1
     clstRslt$grp[idxPost:nrow(clstRslt)] <- 2
-    
+    clstRslt$flagMissDataNextDay <- flagMissDataNextDay
     # --------- 
     idxsGrp2 <- which(clstRslt$grp == 2)
     idxsGrp1 <- which(clstRslt$grp ==1)
@@ -155,7 +254,7 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
     maxGrp1 <- which.max(grp1$timeRndMin)
     minGrp2 <- which.min(grp2$timeRndMin)
     # --
-
+  
     # TODO not sure if this is the correct calculation on mean of difference
     
     grp1$kMeanDiff <- base::mean(grp1$diff)
@@ -179,9 +278,7 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
     clstRslt[,"medianClst1_102.100"] <- stats::median(grp1$data.102.100)
     clstRslt[,"medianClst2_101.100"] <- stats::median(grp2$data.101.100)
     clstRslt[,"medianClst2_102.100"] <- stats::median(grp2$data.102.100)
-    
   
-    
     
     # Difference between pre-and-post cal readings
     dfRsltDiff$preDiff <- grp1$diff[maxGrp1]
@@ -191,6 +288,7 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
     dfRsltDiff$mednAccS1 <- stats::median(clstRslt$accS1)
     dfRsltDiff$mednAccS2 <- stats::median(clstRslt$accS2)
     dfRsltDiff$mednCmboAcc <- stats::median(clstRslt$cmboAcc)
+    dfRsltDiff$flagMissDataNextDay <- flagMissDataNextDay
     
     if(grp2$timeRndMin[minGrp2] < grp1$timeRndMin[maxGrp1]){
       cat(paste0(dfRsltDiff$site," ",dfRsltDiff$term, " ",dfRsltDiff$date, " did not exhibit defined clusters."))
@@ -201,15 +299,11 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
     
       
       
-      if(length(which(is.na(wideData))) > 10){
+      if(length(which(is.na(longData))) > 10){
         warning(paste0("More than 10 data points NA, index: ",idx) )
       }
       # Assumption: The longest time gap corresponds to sensor maintenance
       
-      
-      
-      
-    
     } else {
       dfRsltDiff$defnClstGrp <- TRUE # cluster grouping well-defined.
       
@@ -232,13 +326,12 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
       dfRsltDiff$sdDiffClstGrp2 <- unique(grp2$sdDiffClst)
       
     }
-    
+  
     lsRsltDiff[[idx]] <- data.table::as.data.table(dfRsltDiff)
   }
-  
   rsltDiff <- data.table::rbindlist(lsRsltDiff, fill=TRUE)
   
-  write.csv(rsltDiff,paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))
+  write.csv(rsltDiff,paste0(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))
 } else {
   # TODO Write results to drift bucket:
   # def.set.gcp.env(bucket=bucketWrite)
@@ -253,12 +346,21 @@ if(!file.exists(paste(saveDirTemp,"rsltDiffSndeGrpClstReCalc.csv"))){
 
 # The rsltDiffSndeGrpClstReCalc considers both cleaning-only bouts and re-cal bouts
 # Use fulcrum data to distinguish between cleaning vs. recalibrations:
-
+namzColsCalStus <- c("s1_post_cal_do","s2_post_cal_do",
+"s1_post_cal_turbidity","s2_post_cal_turbidity",
+"s1_post_cal_conductivity","s2_post_cal_conductivity",
+"s1_post_cal_ph","s2_post_cal_ph",
+"s1_post_cal_ph_2","s2_post_cal_ph_2",
+"s2_post_cal_do_2","s2_post_cal_do_2",
+"post_cal_conductivity_2","s2_post_cal_conductivity_2",
+"s1_post_cal_turbidity_2","s2_post_cal_turbidity_2"
+)
+# namzColsCalStus <- c(namzColsCalStus, paste0(namzColsCalStus,"_2"))
 
 flcmParaList = base::list(vec_col_namz = c("siteid", "date","location_stream",
                                            "level_of_s1_biofouling","level_of_s2_biofouling", "post_cleaning_do", "s2post_cleaning_do", "s1_post_cal_ph","s2_post_cal_ph","ph_comparison_successful",
                                            "sonde_calibrated",
-                                           "s1_post_cal_conductivity","s2_post_cal_conductivity"),
+                                           namzColsCalStus),
                           siteid = "ALL",
                           flcmDateCol = "date")
 
@@ -271,56 +373,88 @@ datFlcm <- alerts::def.grab.flcm.app(apiToken = CRED_FLCM, start_date= "2018-01-
                                      formId = "3be325c3-dc74-4010-8cf6-24ee0d447094")
 datFlcm <- datFlcm[base::order(datFlcm[,flcmParaList$flcmDateCol]),]
 
-head(datFlcm)
 # Any data point that had at least one calibration (S1, S2, or both) could be useful for drift analysis
-idxsCalS2 <- (which(!is.na(datFlcm$s2_post_cal_ph)))
-idxsCalS1 <- (which(!is.na(datFlcm$s1_post_cal_ph)))
-idxsCalComp <- (which(!is.na(datFlcm$ph_comparison_successful)))
+# Some fulcrum records are incomplete in specifying whether sonde was calibrated
+#  Fill in the gaps here
+idxsNaCalb <- which(is.na(datFlcm$sonde_calibrated))
+# Identify records that only happen if calibration was performed:
+idxsCalb <- (unique(unlist(lapply(namzColsCalStus, function(x) which(!is.na(datFlcm[[x]]))))))
+datFlcm[idxsNaCalb,"sonde_calibrated"] <- "N" # Set all NA to not-calibrated
+datFlcm[idxsCalb,"sonde_calibrated"] <- "Y" # Evidence of calibration
 
-idxsCal <- unique(sort(c(idxsCalS1,idxsCalS2,idxsCalComp)))
+# Total uncertain whether cal performed or not:
+idxsNotSure <- which(is.na(datFlcm$sonde_calibrated))
+
+idxsCal <-which(datFlcm$sonde_calibrated=="Y")#,idxsCalCondS1,idxsCalCondS2)))
 # Site-dates calibration:
-
 siteDatzCal <- unique(datFlcm[idxsCal, c("siteid","date")])
 siteDatzCal$date <- as.Date(siteDatzCal$date)
-dim(siteDatzCal)
-
-
-
 siteDatzCal$siteDate <- paste0(siteDatzCal$siteid,"_",siteDatzCal$date)
-
 rsltDiff$siteDate <- paste0(rsltDiff$site,"_",rsltDiff$date)
 
-idxsCal <- which(rsltDiff$siteDate %in% siteDatzCal$siteDate)
-idxsCln <- which(!rsltDiff$siteDate %in% siteDatzCal$siteDate)
 
-length(idxsCln)
-length(idxsCal)
+# idxsCal <- which(siteDatzCal$siteDate %in% rsltDiff$siteDate)
 
-rsltCal <- rsltDiff[idxsCal,]
-rsltCln <- rsltDiff[idxsCln,]
-summary(as.numeric(rsltCln$gapDur))
+# View(cmboCalDiff)
 
 # =========================================================================== #
 #         Analyze sequence of calibration results by site               
 # =========================================================================== #
+# Subset to results that included calibration at S1 or S2 or both:
 
+cmboCalDiff <- base::merge(rsltDiff,siteDatzCal, by ="siteDate")
+idxsCal <- which(rsltDiff$siteDate %in% cmboCalDiff$siteDate)
 
-# TODO visits with time gaps <10 mins probably are faulty/shouldn't be in here.
-units(rsltCal$gapDur)
+rsltCal <- rsltDiff[idxsCal,]
 
-idxsTooShort <- which(rsltCal$gapDur < 30)
-
+if(any(units(rsltCal$gapDur)!="mins")){
+  stop("Must convert all units to minutes")
+}
+# Visits with time gaps <40 mins may be faulty representations of calibrations/shouldn't be in here.
+idxsTooShort <- which(rsltCal$gapDur < 40)
+# rsltCal$gapDur[idxsTooShort]
 rsltCalb <- rsltCal[-idxsTooShort,]
-
-rsltCal$gapDur[idxsTooShort]
-
-idxs
 
 # Premise: for e/ site, look at sequence of pre-post calibration assessment results
 # Classify whether something is drift or mis-calibration
 # Then filter further by considering biofouling fulcrum records.
 
 
+
+
+idxsAbovUncn <- which(rsltCalb$changeMedn30 > rsltCalb$mednCmboAcc)
+idxsBeloUncn <- which(rsltCalb$changeMedn30 < rsltCalb$mednCmboAcc)
+
+idxsWithInUncn <- which(abs(rsltCalb$changeMedn30) <= rsltCalb$mednCmboAcc)
+
+rsltCalb$QFOutUncn <- NA
+rsltCalb$QFOutUncn[idxsWithInUncn] <- 0
+rsltCalb$QFOutUncn[c(idxsAbovUncn,idxsBeloUncn)] <- 1
+
+idxsUnkn <- (which(is.na(rsltCalb$QFOutUncn)))
+
+
+
+
+
+
+
+# GOAL: Identify situations of recurring drift within a site-sensor
+
+grpCalb <- rsltCalb %>% group_by_at(dplyr::all_of(c(site,term))) %>% mutate(calbInt = c(NA,diff(date)) )
+
+
+grpN <- c("site","term")
+grpCalb <- rsltCalb %>% group_by(across(all_of(grpN))) %>% mutate(calbInt = c(NA,diff(date)) )
+
+# hist(rsltCalb$calbInt,breaks = 30)
+
+rsltCalb <- ungroup(grpCalb)
+
+idxsConsec <- which(rsltCalb$calbInt<70)
+
+
+# By looping across site-sensor, recurring drift patterns may be identified.
 for(site in unique(rsltCalb$site)){
   
   rsltCalbSite <- rsltCalb[grep(site,rsltCalb$site),]
@@ -331,6 +465,8 @@ for(site in unique(rsltCalb$site)){
     if(base::nrow(subTrm)==0){
       next()
     }
+    
+    
     
     
     # Now try to identify potential instances of drift, as differenced values
@@ -344,18 +480,15 @@ for(site in unique(rsltCalb$site)){
     # Ensure data.frame ordered by time
     subTrm <- subTrm[order(subTrm$date),]
     
-   
-    
     # The indices of data falling outside of expected range
     idxsAbovUncn <- which(abs(subTrm$changeSngl) > subTrm$mednCmboAcc)
-    
-    # Consider the 
+    idxsBeloUncn <- which(abs(subTrm$changeSngl) <= subTrm$mednCmboAcc)
+    # Consider the direction of drift:
     idxsAbovUncnPos <- which(subTrm$changeSngl > subTrm$mednCmboAcc)
     idxsAbovUncnNeg <- which(subTrm$changeSngl < -subTrm$mednCmboAcc)
     
     
     diff(idxsAbovUncn)
-    
     
     
     hist(subTrm$changeMedn30[idxsAbovUncn])  
