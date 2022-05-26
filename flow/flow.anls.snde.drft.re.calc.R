@@ -17,8 +17,17 @@
 #' was likely not wiping at all sites, with site-by-site fixes occurring May through
 #' July 2019.
 #' 
+#' @note The takeaway from the plots is that there may be a few instances where 
+#' there appears to be a trend in the differenced values between S1 and S2, but 
+#' generally there isn't a glaring indication of progressively worsening drift.
+#' What this analysis does not address is whether sensors co-drift. A downside to
+#' this analysis is that co-drifting sensors would not be detected. The univariate 
+#  drift analysis would be more suited for sonde drift detection.
+#' 
 # Changelog / contributions
 #  2022-05-06 beginning to craft analysis
+#  2022-05-26 Generated plot outputs that suggest this the S2-S1 differencing approach
+#    doesn't provide compelling evidence for drift. A univariate approach may work better.
 
 
 # TODO consider completely re-downloading all timeseries data. Some unexpected gaps exist (e.g. idx=2102; ARIK 2019-10-23 18:10-19:10 at 101.100 should be continuous, with 0 gaps, whereas 102.100 has a gap.)
@@ -68,8 +77,9 @@ bucketWrte <- "neon-dev-is-drift"
 
 # Directory for saving intermediate work
 saveDirTemp <- "~/analysesQAQC/drift/sondeDrift/"
-if(!dir.exists(saveDirTemp)){
-  dir.create(saveDirTemp,recursive=TRUE)
+plotSaveDir <- paste0(saveDirTemp,"plots/")
+if(!dir.exists(plotSaveDir)){
+  dir.create(plotSaveDir,recursive=TRUE)
 }
 
 timeCol <- "timeRndMin"
@@ -423,14 +433,17 @@ rsltCalb <- rsltCal[-idxsTooShort,]
 
 
 idxsAbovUncn <- which(rsltCalb$changeMedn30 > rsltCalb$mednCmboAcc)
-idxsBeloUncn <- which(rsltCalb$changeMedn30 < rsltCalb$mednCmboAcc)
+idxsBeloUncn <- which(rsltCalb$changeMedn30 < -rsltCalb$mednCmboAcc)
 
 idxsWithInUncn <- which(abs(rsltCalb$changeMedn30) <= rsltCalb$mednCmboAcc)
 
 rsltCalb$QFOutUncn <- NA
 rsltCalb$QFOutUncn[idxsWithInUncn] <- 0
 rsltCalb$QFOutUncn[c(idxsAbovUncn,idxsBeloUncn)] <- 1
-
+rsltCalb$QFPos <- 0
+rsltCalb$QFPos[idxsAbovUncn] <- 1
+rsltCalb$QFNeg <- 0
+rsltCalb$QFNeg[idxsBeloUncn] <- 1
 idxsUnkn <- (which(is.na(rsltCalb$QFOutUncn)))
 
 
@@ -445,13 +458,14 @@ grpCalb <- rsltCalb %>% group_by_at(dplyr::all_of(c(site,term))) %>% mutate(calb
 
 
 grpN <- c("site","term")
-grpCalb <- rsltCalb %>% group_by(across(all_of(grpN))) %>% mutate(calbInt = c(NA,diff(date)) )
+grpCalb <- rsltCalb %>% group_by(across(all_of(grpN))) %>% mutate(calbInt = c(0,diff(date)) )
 
 # hist(rsltCalb$calbInt,breaks = 30)
 
 rsltCalb <- ungroup(grpCalb)
+# Sort rslt Calb by site/date
+rsltCalb <- rsltCalb[order(rsltCalb$siteDate),]
 
-idxsConsec <- which(rsltCalb$calbInt<70)
 
 
 # By looping across site-sensor, recurring drift patterns may be identified.
@@ -467,6 +481,98 @@ for(site in unique(rsltCalb$site)){
     }
     
     
+    # TODO create shewhart plot
+    
+    
+    
+    # Identify consecutive visits
+    idxsConsec <- which(subTrm$calbInt<70) # This could be improved by ensuring no visit gets missed in original df construction (no skipping)
+    rleConsec <- rle(diff(idxsConsec))
+    
+    idxsRleConsec <- which(rleConsec$values == 1) # The differenced value of 1 means consecutive
+    idxsRleMlti <- which(rleConsec$lengths > 1) # There's a run of consecutive visits
+    
+    idxsRle <- intersect(idxsRleConsec, idxsRleMlti) # consecutive, and more than 1 run.
+    if(length(idxsRle)==0){
+      next()
+    }
+    
+    # library(qcc)
+    # 
+    # qcc::qcc(subTrm,type="xbar.one")
+    # 
+    # dfQcr <- qcr::qcd(subTrm)
+    # resQcs <- qcr::qcs.R(dfQcr)
+    # summary(resQcs)
+    # 
+    
+  
+    
+    
+    
+    # Convert to idxs corresponding to original df, subTrm
+    allIdxsEnd <- cumsum(rleConsec$lengths)
+    allIdxsBgn <- c(1,dplyr::lag(allIdxsEnd)[-1] + 1)
+    actlIdxsEnd <- allIdxsEnd[idxsRle]
+    actlIdxsBgn <- allIdxsBgn[idxsRle]
+    
+    lsSubRuns <- lapply(1:length(idxsRle), function(i) subTrm[actlIdxsBgn[i]:actlIdxsEnd[i],])
+    
+    
+    
+    lsDrftRuns <- base::list()
+    # Visualizing runs of drift:
+    for(subIdx in 1:length(lsSubRuns)){
+      df <- lsSubRuns[[subIdx]]
+      
+      
+      # ----------------------------
+      # Plotting drift with time
+      
+      #---------
+      # df <- subTrm
+      titl <- paste0(site, ".DP0.20005.001.", term)
+      nameData <- paste0("Pre - post 30-min median change of the S2 - S1 differences")
+      datCol <- "changeMedn30"
+      timeCol <- "bgnTimePost"
+      accCol <- "mednCmboAcc"
+      qfCol <- "QFOutUncn"
+      
+      
+      negAccCol <- "negAcc"
+      df[[negAccCol]] <- -df[[accCol]]
+      
+      df[[qfCol]] <- as.factor(df[[qfCol]])
+      
+      p <- ggplot2::ggplot(df,aes_string(x=timeCol,y=datCol)) +#, color=as.factor(qfCol))) + 
+        geom_point() + geom_line(alpha=0.5)
+      
+      p <- p + geom_line(aes_string(x=timeCol, y=accCol),linetype="dashed")
+      p <- p + geom_line(aes_string(x=timeCol, y=negAccCol),linetype="dashed")
+      
+      p <- p + theme(axis.text.x = element_text(angle = 70)) +
+        ylab(nameData) +
+        xlab("time") + 
+        ggtitle(titl)
+      
+      lsDrftRuns[[subIdx]] <- p
+      #--------
+     
+      
+    }
+    
+    
+    
+    fp <- paste0(plotSaveDir,"MednDiffRun_",titl,"_",subIdx, ".png")
+    mltiPlot <- ggpubr::ggarrange(plotlist = lsDrftRuns)
+    # Write plots
+    ggplot2::ggsave(filename = fp,plot = mltiPlot)
+    
+    
+    
+    # Drift may be happening if consecutive visits indicate continuous patterns of drift in the same direction.
+    idxsPos <- lapply(lsSubRuns, function(x) which(x$QFPos==1))
+    idxsNeg <- lapply(lsSubRuns, function(x) which(x$QFNeg==1))
     
     
     # Now try to identify potential instances of drift, as differenced values
@@ -475,7 +581,7 @@ for(site in unique(rsltCalb$site)){
     #  alerts::def.calc.acc.val() chooses the largest accuracy value b/w absolute
     # The combined accuracy between S1 and S2 is then calculated.
     
-    hist(subTrm$changeMedn30)
+    # hist(subTrm$changeMedn30)
     
     # Ensure data.frame ordered by time
     subTrm <- subTrm[order(subTrm$date),]
@@ -488,10 +594,12 @@ for(site in unique(rsltCalb$site)){
     idxsAbovUncnNeg <- which(subTrm$changeSngl < -subTrm$mednCmboAcc)
     
     
-    diff(idxsAbovUncn)
     
     
-    hist(subTrm$changeMedn30[idxsAbovUncn])  
+    # diff(idxsAbovUncn)
+    
+    
+    # hist(subTrm$changeMedn30[idxsAbovUncn])  
     
   }
 }
